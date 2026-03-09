@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Memory limits -->
+    <max_memory_usage>10000000000</max_memory_usage>
+    
+    <!-- Query settings -->
+    <max_execution_time>300</max_execution_time>
+    
+    <!-- Logging -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+    
+    <!-- Network -->
+    <listen_host>::</listen_host>
+    <listen_host>0.0.0.0</listen_host>
+    
+    <!-- Default database -->
+    <default_database>prithvinet</default_database>
+</clickhouse>

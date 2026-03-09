@@ -1,0 +1,1 @@
+"""PRITHVINET Application Module"""
