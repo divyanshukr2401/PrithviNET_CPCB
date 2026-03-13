@@ -187,7 +187,7 @@ function DAGGraph({ dag }: { dag: CausalDAGResponse }) {
         height={dimensions.height}
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
         className="w-full rounded-lg"
-        style={{ background: "rgba(0,0,0,0.15)" }}
+        style={{ background: "rgba(0,0,0,0.03)" }}
       >
         <defs>
           <marker
@@ -348,7 +348,7 @@ function DAGGraph({ dag }: { dag: CausalDAGResponse }) {
                   y={node.y + (li - (lines.length - 1) / 2) * 11}
                   textAnchor="middle"
                   dominantBaseline="central"
-                  fill={isHighlighted ? "#fff" : "#e2e8f0"}
+                  fill={isHighlighted ? "#fff" : "#1a1a2e"}
                   fontSize={node.id.length > 10 ? "8" : "10"}
                   fontFamily="monospace"
                   fontWeight={isHighlighted ? "bold" : "normal"}
@@ -377,12 +377,12 @@ function DAGGraph({ dag }: { dag: CausalDAGResponse }) {
             <foreignObject x={tooltipX} y={tooltipY} width={tooltipWidth} height={100}>
               <div
                 style={{
-                  background: "rgba(15,23,42,0.95)",
+                  background: "rgba(255,255,255,0.97)",
                   border: `1px solid ${nodeColor(hoveredNode)}44`,
                   borderRadius: 8,
                   padding: "8px 10px",
                   fontSize: 11,
-                  color: "#e2e8f0",
+                  color: "#1a1a2e",
                   fontFamily: "monospace",
                   lineHeight: 1.5,
                 }}
@@ -390,8 +390,8 @@ function DAGGraph({ dag }: { dag: CausalDAGResponse }) {
                 <div style={{ fontWeight: "bold", color: nodeColor(hoveredNode), marginBottom: 2 }}>
                   {hoveredNode}
                 </div>
-                <div style={{ color: "#94a3b8", fontSize: 10 }}>{cat}</div>
-                <div style={{ marginTop: 4, fontSize: 10, color: "#94a3b8" }}>
+                <div style={{ color: "#5a6570", fontSize: 10 }}>{cat}</div>
+                <div style={{ marginTop: 4, fontSize: 10, color: "#5a6570" }}>
                   {inEdges.length} incoming &middot; {outEdges.length} outgoing
                 </div>
               </div>
@@ -413,21 +413,21 @@ function DAGGraph({ dag }: { dag: CausalDAGResponse }) {
             <foreignObject x={mx - 110} y={my} width={220} height={60}>
               <div
                 style={{
-                  background: "rgba(15,23,42,0.95)",
+                  background: "rgba(255,255,255,0.97)",
                   border: "1px solid #facc1544",
                   borderRadius: 8,
                   padding: "6px 10px",
                   fontSize: 10,
-                  color: "#e2e8f0",
+                  color: "#1a1a2e",
                   fontFamily: "monospace",
                   lineHeight: 1.5,
                   textAlign: "center",
                 }}
               >
-                <span style={{ color: "#facc15" }}>{edge.from}</span>
+                <span style={{ color: "#ca8a04" }}>{edge.from}</span>
                 {" → "}
-                <span style={{ color: "#facc15" }}>{edge.to}</span>
-                <div style={{ color: "#94a3b8", marginTop: 2 }}>{edge.description}</div>
+                <span style={{ color: "#ca8a04" }}>{edge.to}</span>
+                <div style={{ color: "#5a6570", marginTop: 2 }}>{edge.description}</div>
               </div>
             </foreignObject>
           );
@@ -548,7 +548,7 @@ export default function CausalPage() {
         {/* DAG Error */}
         {dagError && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 mb-4">
-            <p className="text-red-400 font-medium text-sm">DAG Error</p>
+            <p className="text-red-700 font-medium text-sm">DAG Error</p>
             <p className="text-muted-foreground text-sm mt-1">{dagError}</p>
           </div>
         )}
@@ -640,7 +640,7 @@ export default function CausalPage() {
       {/* Simulation Error */}
       {simError && (
         <div className="bg-card rounded-lg border border-red-500/30 p-5">
-          <p className="text-red-400 font-medium text-sm">Simulation Error</p>
+          <p className="text-red-700 font-medium text-sm">Simulation Error</p>
           <p className="text-muted-foreground text-sm mt-1">{simError}</p>
         </div>
       )}
@@ -702,7 +702,7 @@ export default function CausalPage() {
                 <tbody>
                   {whatIf.scenarios.map((sc, i) => {
                     const isReduction = sc.absolute_change < 0;
-                    const effectColor = isReduction ? "text-green-400" : "text-red-400";
+                    const effectColor = isReduction ? "text-green-700" : "text-red-700";
                     const effectBg = isReduction ? "bg-green-500/5" : "bg-red-500/5";
                     const isSignificant = sc.p_value < 0.05;
 
@@ -712,7 +712,7 @@ export default function CausalPage() {
                           <div className="flex items-center gap-2">
                             {formatVarName(sc.intervention_type)}
                             {isSignificant && (
-                              <span title="Statistically significant (p &lt; 0.05)"><ShieldCheck className="w-3.5 h-3.5 text-green-400" /></span>
+                              <span title="Statistically significant (p &lt; 0.05)"><ShieldCheck className="w-3.5 h-3.5 text-green-700" /></span>
                             )}
                           </div>
                           <p className="text-[10px] text-muted-foreground">{sc.scenario}</p>
@@ -772,8 +772,8 @@ export default function CausalPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {whatIf.scenarios.map((sc, i) => {
               const isReduction = sc.absolute_change < 0;
-              const borderColor = isReduction ? "border-green-500/30" : "border-red-500/30";
-              const textColor = isReduction ? "text-green-400" : "text-red-400";
+              const borderColor = isReduction ? "border-green-600/30" : "border-red-600/30";
+              const textColor = isReduction ? "text-green-700" : "text-red-700";
 
               return (
                 <div key={`card-${i}`} className={`bg-card rounded-lg border ${borderColor} p-4 text-center`}>
@@ -784,7 +784,7 @@ export default function CausalPage() {
                     {sc.relative_change_pct > 0 ? "+" : ""}{sc.relative_change_pct.toFixed(1)}%
                   </p>
                   <div className="flex items-center justify-center gap-1 mt-1">
-                    {isReduction && <TrendingDown className="w-3 h-3 text-green-400" />}
+                    {isReduction && <TrendingDown className="w-3 h-3 text-green-700" />}
                     <p className="text-[10px] text-muted-foreground">
                       {isReduction ? "Reduction" : "Increase"}
                     </p>

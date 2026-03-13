@@ -253,7 +253,7 @@ function ForecastPageInner() {
       {/* Error State */}
       {error && (
         <div className="bg-card rounded-lg border border-red-500/30 p-5">
-          <p className="text-red-400 font-medium text-sm">Forecast Error</p>
+          <p className="text-red-700 font-medium text-sm">Forecast Error</p>
           <p className="text-muted-foreground text-sm mt-1">{error}</p>
         </div>
       )}
@@ -310,38 +310,38 @@ function ForecastPageInner() {
                       <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" />
                   <XAxis
                     dataKey="label"
-                    tick={{ fill: "#94a3b8", fontSize: 11 }}
-                    tickLine={{ stroke: "#334155" }}
-                    axisLine={{ stroke: "#334155" }}
+                    tick={{ fill: "#5a6570", fontSize: 11 }}
+                    tickLine={{ stroke: "#d1d5db" }}
+                    axisLine={{ stroke: "#d1d5db" }}
                     interval="preserveStartEnd"
                     angle={-30}
                     textAnchor="end"
                     height={60}
                   />
                   <YAxis
-                    tick={{ fill: "#94a3b8", fontSize: 11 }}
-                    tickLine={{ stroke: "#334155" }}
-                    axisLine={{ stroke: "#334155" }}
+                    tick={{ fill: "#5a6570", fontSize: 11 }}
+                    tickLine={{ stroke: "#d1d5db" }}
+                    axisLine={{ stroke: "#d1d5db" }}
                     label={{
                       value: forecast.parameter,
                       angle: -90,
                       position: "insideLeft",
-                      fill: "#94a3b8",
+                      fill: "#5a6570",
                       fontSize: 12,
                     }}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#1e293b",
-                      border: "1px solid #334155",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #d1d5db",
                       borderRadius: "8px",
-                      color: "#e2e8f0",
+                      color: "#1a1a2e",
                       fontSize: "12px",
                     }}
-                    labelStyle={{ color: "#94a3b8", marginBottom: "4px" }}
+                    labelStyle={{ color: "#5a6570", marginBottom: "4px" }}
                     formatter={(value: unknown, name: unknown) => {
                       const labels: Record<string, string> = {
                         predicted: "Predicted",
@@ -365,7 +365,7 @@ function ForecastPageInner() {
                     type="monotone"
                     dataKey="lower_bound"
                     stroke="none"
-                    fill="#1e293b"
+                    fill="#ffffff"
                     fillOpacity={1}
                     isAnimationActive={false}
                   />
@@ -397,7 +397,7 @@ function ForecastPageInner() {
                     stroke="#3b82f6"
                     strokeWidth={2.5}
                     dot={{ r: 2.5, fill: "#3b82f6", strokeWidth: 0 }}
-                    activeDot={{ r: 5, fill: "#3b82f6", stroke: "#1e293b", strokeWidth: 2 }}
+                    activeDot={{ r: 5, fill: "#3b82f6", stroke: "#ffffff", strokeWidth: 2 }}
                   />
                 </ComposedChart>
               </ResponsiveContainer>

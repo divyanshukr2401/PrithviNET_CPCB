@@ -60,8 +60,8 @@ function createClusterIcon(cluster: L.MarkerCluster): L.DivIcon {
       justify-content: center;
       font-weight: bold;
       font-size: ${size < 40 ? 12 : 14}px;
-      border: 3px solid rgba(255,255,255,0.5);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      border: 3px solid rgba(255,255,255,0.8);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     ">${count}</div>`,
     className: "custom-cluster-icon",
     iconSize: L.point(size, size),

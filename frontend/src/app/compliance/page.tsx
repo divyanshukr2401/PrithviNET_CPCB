@@ -18,9 +18,9 @@ import {
 
 // ── Helpers ────────────────────────────────────────────────
 function scoreColor(score: number): string {
-  if (score > 80) return "text-green-400";
-  if (score > 50) return "text-yellow-400";
-  return "text-red-400";
+  if (score > 80) return "text-green-700";
+  if (score > 50) return "text-yellow-600";
+  return "text-red-700";
 }
 
 function scoreRingColor(score: number): string {
@@ -30,9 +30,9 @@ function scoreRingColor(score: number): string {
 }
 
 function scoreBgGlow(score: number): string {
-  if (score > 80) return "shadow-green-500/20";
-  if (score > 50) return "shadow-yellow-500/20";
-  return "shadow-red-500/20";
+  if (score > 80) return "shadow-green-500/10";
+  if (score > 50) return "shadow-yellow-500/10";
+  return "shadow-red-500/10";
 }
 
 function scoreLabel(score: number): string {
@@ -43,18 +43,18 @@ function scoreLabel(score: number): string {
 
 function severityColor(severity: string): string {
   switch (severity) {
-    case "critical": return "text-red-400 bg-red-500/10 border-red-500/30";
-    case "high": return "text-orange-400 bg-orange-500/10 border-orange-500/30";
-    case "medium": return "text-yellow-400 bg-yellow-500/10 border-yellow-500/30";
-    default: return "text-green-400 bg-green-500/10 border-green-500/30";
+    case "critical": return "text-red-700 bg-red-500/10 border-red-500/30";
+    case "high": return "text-orange-600 bg-orange-500/10 border-orange-500/30";
+    case "medium": return "text-yellow-600 bg-yellow-500/10 border-yellow-500/30";
+    default: return "text-green-700 bg-green-500/10 border-green-500/30";
   }
 }
 
 function diagnosisColor(diagnosis: string): string {
   switch (diagnosis) {
-    case "fault_detected": return "text-red-400";
-    case "real_event": return "text-yellow-400";
-    default: return "text-green-400";
+    case "fault_detected": return "text-red-700";
+    case "real_event": return "text-yellow-600";
+    default: return "text-green-700";
   }
 }
 
@@ -65,10 +65,10 @@ function formatIndicatorName(key: string): string {
 }
 
 function exceedanceColor(pct: number): string {
-  if (pct > 200) return "text-red-400";
-  if (pct > 100) return "text-orange-400";
-  if (pct > 50) return "text-yellow-400";
-  return "text-green-400";
+  if (pct > 200) return "text-red-700";
+  if (pct > 100) return "text-orange-600";
+  if (pct > 50) return "text-yellow-600";
+  return "text-green-700";
 }
 
 // ── Exceedance type ───────────────────────────────────────
@@ -246,31 +246,31 @@ export default function CompliancePage() {
           </div>
           <div className="bg-card rounded-lg border border-border p-4">
             <div className="flex items-center gap-1.5 mb-2">
-              <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+              <CheckCircle className="w-3.5 h-3.5 text-green-700" />
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Compliant</p>
             </div>
-            <p className="text-2xl font-bold font-mono text-green-400">{summary.compliant}</p>
+            <p className="text-2xl font-bold font-mono text-green-700">{summary.compliant}</p>
           </div>
           <div className="bg-card rounded-lg border border-border p-4">
             <div className="flex items-center gap-1.5 mb-2">
-              <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />
+              <AlertTriangle className="w-3.5 h-3.5 text-orange-600" />
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Non-Compliant</p>
             </div>
-            <p className="text-2xl font-bold font-mono text-orange-400">{summary.non_compliant}</p>
+            <p className="text-2xl font-bold font-mono text-orange-600">{summary.non_compliant}</p>
           </div>
           <div className="bg-card rounded-lg border border-border p-4">
             <div className="flex items-center gap-1.5 mb-2">
-              <TriangleAlert className="w-3.5 h-3.5 text-red-400" />
+              <TriangleAlert className="w-3.5 h-3.5 text-red-700" />
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Critical</p>
             </div>
-            <p className="text-2xl font-bold font-mono text-red-400">{summary.critical}</p>
+            <p className="text-2xl font-bold font-mono text-red-700">{summary.critical}</p>
           </div>
           <div className="bg-card rounded-lg border border-border p-4">
             <div className="flex items-center gap-1.5 mb-2">
               <Gauge className="w-3.5 h-3.5 text-primary" />
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Compliance</p>
             </div>
-            <p className={`text-2xl font-bold font-mono ${summary.overall_compliance_pct >= 80 ? "text-green-400" : summary.overall_compliance_pct >= 50 ? "text-yellow-400" : "text-red-400"}`}>
+            <p className={`text-2xl font-bold font-mono ${summary.overall_compliance_pct >= 80 ? "text-green-700" : summary.overall_compliance_pct >= 50 ? "text-yellow-600" : "text-red-700"}`}>
               {summary.overall_compliance_pct.toFixed(0)}%
             </p>
           </div>
@@ -300,7 +300,7 @@ export default function CompliancePage() {
           </div>
         ) : exceedances.length === 0 ? (
           <div className="py-8 text-center">
-            <CheckCircle className="w-8 h-8 text-green-400/40 mx-auto mb-2" />
+            <CheckCircle className="w-8 h-8 text-green-700/40 mx-auto mb-2" />
             <p className="text-muted-foreground text-sm">No exceedances in the last 72 hours. All factories compliant.</p>
           </div>
         ) : (
@@ -336,8 +336,8 @@ export default function CompliancePage() {
                     <td className="py-2 px-3">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
                         exc.quality_flag === "suspect"
-                          ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/30"
-                          : "text-red-400 bg-red-500/10 border-red-500/30"
+                          ? "text-yellow-600 bg-yellow-500/10 border-yellow-500/30"
+                          : "text-red-700 bg-red-500/10 border-red-500/30"
                       }`}>
                         {exc.anomaly_type}
                       </span>
@@ -380,7 +380,7 @@ export default function CompliancePage() {
         {/* Factories error */}
         {factoriesError && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 mb-4">
-            <p className="text-red-400 font-medium text-sm">
+            <p className="text-red-700 font-medium text-sm">
               Failed to load factories
             </p>
             <p className="text-muted-foreground text-sm mt-1">
@@ -474,7 +474,7 @@ export default function CompliancePage() {
           ═══════════════════════════════════════════════════════ */}
       {diagError && (
         <div className="bg-card rounded-lg border border-red-500/30 p-5">
-          <p className="text-red-400 font-medium text-sm">Diagnosis Error</p>
+          <p className="text-red-700 font-medium text-sm">Diagnosis Error</p>
           <p className="text-muted-foreground text-sm mt-1">{diagError}</p>
         </div>
       )}
@@ -520,7 +520,7 @@ export default function CompliancePage() {
                     cy="60"
                     r="52"
                     fill="none"
-                    stroke="#334155"
+                    stroke="#d1d5db"
                     strokeWidth="10"
                   />
                   {/* Score ring */}
@@ -577,8 +577,8 @@ export default function CompliancePage() {
                 <div
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${
                     hasFault
-                      ? "bg-red-500/10 text-red-400 border border-red-500/30"
-                      : "bg-green-500/10 text-green-400 border border-green-500/30"
+                      ? "bg-red-500/10 text-red-700 border border-red-500/30"
+                      : "bg-green-500/10 text-green-700 border border-green-500/30"
                   }`}
                 >
                   {hasFault ? (
@@ -592,8 +592,8 @@ export default function CompliancePage() {
                 <div
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${
                     hasRealEvent
-                      ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/30"
-                      : "bg-green-500/10 text-green-400 border border-green-500/30"
+                      ? "bg-yellow-500/10 text-yellow-600 border border-yellow-500/30"
+                      : "bg-green-500/10 text-green-700 border border-green-500/30"
                   }`}
                 >
                   {hasRealEvent ? (
@@ -613,13 +613,13 @@ export default function CompliancePage() {
                 </div>
                 <div className="bg-muted/20 rounded-lg p-3 text-center">
                   <p className="text-xs text-muted-foreground">Faults</p>
-                  <p className="text-lg font-bold font-mono text-red-400">
+                  <p className="text-lg font-bold font-mono text-red-700">
                     {diagnosis.diagnoses.filter((d) => d.diagnosis === "fault_detected").length}
                   </p>
                 </div>
                 <div className="bg-muted/20 rounded-lg p-3 text-center">
                   <p className="text-xs text-muted-foreground">Normal</p>
-                  <p className="text-lg font-bold font-mono text-green-400">
+                  <p className="text-lg font-bold font-mono text-green-700">
                     {diagnosis.diagnoses.filter((d) => d.diagnosis === "normal").length}
                   </p>
                 </div>

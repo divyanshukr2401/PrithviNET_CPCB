@@ -38,9 +38,9 @@ function getLevelName(level: number): string {
 
 // ── Helpers ───────────────────────────────────────────────
 function rankIcon(rank: number) {
-  if (rank === 1) return <Trophy className="w-4 h-4 text-yellow-400" />;
-  if (rank === 2) return <Medal className="w-4 h-4 text-gray-300" />;
-  if (rank === 3) return <Medal className="w-4 h-4 text-amber-600" />;
+  if (rank === 1) return <Trophy className="w-4 h-4 text-yellow-600" />;
+  if (rank === 2) return <Medal className="w-4 h-4 text-gray-500" />;
+  if (rank === 3) return <Medal className="w-4 h-4 text-amber-700" />;
   return <span className="w-4 text-center text-xs text-muted-foreground font-mono">{rank}</span>;
 }
 
@@ -329,7 +329,7 @@ export default function GamificationPage() {
           {/* Submission Error */}
           {submitError && (
             <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 p-4">
-              <p className="text-red-400 font-medium text-sm">
+              <p className="text-red-700 font-medium text-sm">
                 Submission Failed
               </p>
               <p className="text-muted-foreground text-sm mt-1">
@@ -342,8 +342,8 @@ export default function GamificationPage() {
           {submitResult && (
             <div className="mt-4 rounded-lg border border-green-500/30 bg-green-500/5 p-4">
               <div className="flex items-center gap-2 mb-2">
-                <Star className="w-4 h-4 text-green-400" />
-                <p className="text-green-400 font-medium text-sm">
+                <Star className="w-4 h-4 text-green-700" />
+                <p className="text-green-700 font-medium text-sm">
                   Report Submitted Successfully!
                 </p>
               </div>
@@ -352,7 +352,7 @@ export default function GamificationPage() {
                   <p className="text-xs text-muted-foreground">
                     Points Earned
                   </p>
-                  <p className="text-2xl font-bold text-green-400 mt-0.5">
+                  <p className="text-2xl font-bold text-green-700 mt-0.5">
                     +{submitResult.points_awarded}
                   </p>
                 </div>
@@ -387,7 +387,7 @@ export default function GamificationPage() {
           {/* Error */}
           {lbError && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4">
-              <p className="text-red-400 font-medium text-sm">
+              <p className="text-red-700 font-medium text-sm">
                 Failed to load leaderboard
               </p>
               <p className="text-muted-foreground text-sm mt-1">{lbError}</p>

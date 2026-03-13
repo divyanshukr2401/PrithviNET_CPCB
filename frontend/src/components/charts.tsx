@@ -72,7 +72,7 @@ export function AQIGauge({ aqi, size = 160 }: AQIGaugeProps) {
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="#334155"
+          stroke="#d1d5db"
           strokeWidth={10}
         />
         {/* Colored AQI arc */}
@@ -291,22 +291,22 @@ export function PollutantChart({ readings, stationId }: PollutantChartProps) {
   return (
     <ResponsiveContainer width="100%" height={250}>
       <BarChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+        <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" />
         <XAxis
           dataKey="name"
-          tick={{ fill: "#94a3b8", fontSize: 11 }}
-          axisLine={{ stroke: "#475569" }}
+          tick={{ fill: "#5a6570", fontSize: 11 }}
+          axisLine={{ stroke: "#9ca3af" }}
         />
         <YAxis
-          tick={{ fill: "#94a3b8", fontSize: 11 }}
-          axisLine={{ stroke: "#475569" }}
+          tick={{ fill: "#5a6570", fontSize: 11 }}
+          axisLine={{ stroke: "#9ca3af" }}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: "#1e293b",
-            border: "1px solid #475569",
+            backgroundColor: "#ffffff",
+            border: "1px solid #d1d5db",
             borderRadius: "0.5rem",
-            color: "#e2e8f0",
+            color: "#1a1a2e",
           }}
           formatter={(value: unknown, name: unknown) => {
             const key = String(name ?? "");

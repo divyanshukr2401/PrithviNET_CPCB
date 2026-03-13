@@ -180,7 +180,7 @@ export default function StationsPage() {
           ═══════════════════════════════════════════════════ */}
       {error && (
         <div className="bg-card rounded-lg border border-red-500/30 p-5">
-          <p className="text-red-400 font-medium text-sm">
+          <p className="text-red-700 font-medium text-sm">
             Failed to load stations
           </p>
           <p className="text-muted-foreground text-sm mt-1">{error}</p>

@@ -143,7 +143,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Radio className="w-3 h-3 text-green-400 animate-pulse-dot" />
+            <Radio className="w-3 h-3 text-green-700 animate-pulse-dot" />
             <span>
               Live{lastUpdate ? ` | ${lastUpdate.toLocaleTimeString()}` : ""}
             </span>
@@ -152,7 +152,7 @@ export default function DashboardPage() {
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
               autoRefresh
-                ? "border-green-500/30 text-green-400 bg-green-500/10"
+                ? "border-green-600/30 text-green-700 bg-green-500/10"
                 : "border-border text-muted-foreground"
             }`}
           >
