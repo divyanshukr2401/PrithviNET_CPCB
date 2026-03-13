@@ -173,6 +173,9 @@ def run(
         http2=False,
         verify=False,
         timeout=httpx.Timeout(connect=15, read=60, write=30, pool=60),
+        limits=httpx.Limits(
+            max_connections=5, max_keepalive_connections=2, keepalive_expiry=30
+        ),
     )
 
     if daily:
@@ -242,7 +245,28 @@ def run(
 
     else:
         # Hourly station-level: one file_Path call per (station, year)
+        RECONNECT_EVERY = (
+            20  # recreate HTTP client every N stations to avoid stale connections
+        )
         for idx, st in enumerate(stations):
+            # Recreate client periodically
+            if idx % RECONNECT_EVERY == 0:
+                if idx > 0:
+                    client.close()
+                    time.sleep(2)
+                client = httpx.Client(
+                    http2=False,
+                    verify=False,
+                    timeout=httpx.Timeout(connect=15, read=60, write=30, pool=60),
+                    limits=httpx.Limits(
+                        max_connections=5,
+                        max_keepalive_connections=2,
+                        keepalive_expiry=30,
+                    ),
+                )
+                if idx > 0:
+                    print(f"  [RECONNECT] Recreated HTTP client at station {idx + 1}")
+
             state_dir = sanitize(st["state"])
             city_dir = sanitize(st["city"])
             station_dir = sanitize(st["station_label"])
@@ -356,4 +380,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[INTERRUPTED] Download stopped by user.")
+    except Exception as exc:
+        import traceback
+
+        print(f"\n[FATAL] Unhandled exception: {exc}")
+        traceback.print_exc()
+        sys.exit(1)
