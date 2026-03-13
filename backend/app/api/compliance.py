@@ -1,175 +1,179 @@
-"""OCEMS Compliance and Auto-Healer API Endpoints"""
+"""OCEMS Compliance and Auto-Healer API Endpoints — wired to real services."""
 
-from fastapi import APIRouter, Query
-from typing import Optional, List
+from fastapi import APIRouter, Query, HTTPException
+from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+
+from app.services.ocems.auto_healer import auto_healer
+from app.services.ingestion.clickhouse_writer import ch_writer
+from app.services.ingestion.postgres_writer import pg_writer
 
 router = APIRouter()
 
 
-class OCEMSLog(BaseModel):
-    """OCEMS/DAHS log entry model"""
-    factory_id: str
-    timestamp: datetime
-    data_status: str
-    error_code: Optional[str] = None
-    raw_values: Optional[dict] = None
-
-
 @router.get("/")
 async def get_compliance_summary():
-    """Get overall OCEMS compliance summary"""
+    """Get overall OCEMS compliance summary across all CG factories."""
+    factories = await pg_writer.get_factories()
+    try:
+        client = ch_writer._get_client()
+        result = client.query("""
+            SELECT factory_id,
+                   countIf(value > emission_limit) AS exceedances,
+                   count() AS total,
+                   100.0 * countIf(value <= emission_limit) / count() AS compliance_pct
+            FROM ocems_raw
+            WHERE timestamp >= now() - INTERVAL 24 HOUR
+            GROUP BY factory_id
+        """)
+        columns = result.column_names
+        rows = [dict(zip(columns, row)) for row in result.result_rows]
+    except Exception:
+        rows = []
+
+    compliance_map = {r["factory_id"]: r for r in rows}
+    compliant = sum(1 for r in rows if r.get("compliance_pct", 0) >= 95)
+    non_compliant = sum(1 for r in rows if 50 <= r.get("compliance_pct", 100) < 95)
+    critical = sum(1 for r in rows if r.get("compliance_pct", 100) < 50)
+
+    overall_pct = 0
+    if rows:
+        overall_pct = round(sum(r.get("compliance_pct", 0) for r in rows) / len(rows), 1)
+
     return {
-        "summary": "Compliance monitoring active",
-        "total_factories": 5000,
-        "compliant": 4200,
-        "non_compliant": 600,
-        "data_gaps": 200,
-        "compliance_rate": 84.0,
-        "last_updated": datetime.utcnow().isoformat()
+        "total_factories": len(factories),
+        "monitored_24h": len(rows),
+        "compliant": compliant,
+        "non_compliant": non_compliant,
+        "critical": critical,
+        "overall_compliance_pct": overall_pct,
+        "last_updated": datetime.utcnow().isoformat(),
     }
 
 
 @router.get("/factories")
 async def get_factories(
-    state: Optional[str] = Query(None),
-    compliance_status: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=1000)
+    city: Optional[str] = Query(None, description="Filter by city"),
+    risk: Optional[str] = Query(None, description="Filter by industry_risk"),
 ):
-    """Get list of factories with compliance status"""
+    """Get list of factories with compliance status."""
+    factories = await pg_writer.get_factories(city=city, risk=risk)
     return {
-        "factories": [],
-        "total": 0,
-        "filters": {"state": state, "compliance_status": compliance_status}
+        "factories": factories,
+        "total": len(factories),
+        "filters": {"city": city, "risk": risk},
     }
 
 
 @router.get("/factories/{factory_id}")
 async def get_factory_compliance(factory_id: str):
-    """Get detailed compliance status for a factory"""
+    """Get detailed compliance status for a factory."""
+    # Get recent OCEMS readings
+    readings = await ch_writer.query_recent_readings(
+        "ocems_raw", factory_id, id_column="factory_id", hours=24,
+    )
+    if not readings:
+        raise HTTPException(status_code=404, detail=f"No recent data for factory {factory_id}")
+
+    # Group by parameter
+    params: dict[str, list] = {}
+    for r in readings:
+        p = r.get("parameter", "")
+        params.setdefault(p, []).append(r)
+
+    import numpy as np
+
+    param_details = {}
+    for p, rlist in params.items():
+        values = [r["value"] for r in rlist]
+        arr = np.array(values)
+        limit = rlist[0].get("emission_limit", 100)
+        exceedances = int(np.sum(arr > limit))
+        param_details[p] = {
+            "avg": round(float(np.mean(arr)), 2),
+            "max": round(float(np.max(arr)), 2),
+            "p95": round(float(np.percentile(arr, 95)), 2),
+            "limit": limit,
+            "exceedance_count": exceedances,
+            "compliance_pct": round(100 * (1 - exceedances / max(1, len(values))), 1),
+        }
+
+    sample = readings[0]
+    overall_compliance = round(
+        sum(d["compliance_pct"] for d in param_details.values()) / max(1, len(param_details)), 1
+    )
+
     return {
         "factory_id": factory_id,
-        "name": "Industrial Plant Alpha",
-        "location": {"lat": 28.6139, "lon": 77.2090, "state": "Delhi"},
-        "ocems_status": "Active",
-        "compliance_status": "Under Review",
-        "sensors": [
-            {"type": "PM", "status": "Active", "last_reading": "45.2 mg/Nm³"},
-            {"type": "SO2", "status": "Active", "last_reading": "120 mg/Nm³"},
-            {"type": "NOx", "status": "Data Gap", "last_reading": None}
-        ],
-        "last_audit": "2024-01-15",
-        "violation_history": []
+        "industry_type": sample.get("industry_type", ""),
+        "city": sample.get("city", ""),
+        "dahs_status": sample.get("dahs_status", "online"),
+        "sensor_health": sample.get("sensor_health", 100),
+        "overall_compliance_pct": overall_compliance,
+        "parameters": param_details,
+        "total_readings_24h": len(readings),
     }
 
 
 @router.get("/auto-healer/diagnose/{factory_id}")
-async def diagnose_data_gap(factory_id: str):
-    """
-    OCEMS Auto-Healer: Diagnose data gaps to distinguish between
-    digital communication failures and true pollution events
-    """
-    return {
-        "factory_id": factory_id,
-        "diagnosis_id": "diag_001",
-        "data_gap_detected": True,
-        "gap_duration_minutes": 45,
-        "diagnosis": {
-            "primary_cause": "DAHS Clock Sync Error",
-            "probability": 0.92,
-            "secondary_causes": [
-                {"cause": "ISP Network Drop", "probability": 0.05},
-                {"cause": "True Emission Event", "probability": 0.03}
-            ]
-        },
-        "indicators_analyzed": [
-            {"indicator": "Timestamp Continuity", "status": "Disrupted", "weight": 0.35},
-            {"indicator": "Adjacent Sensor Activity", "status": "Normal", "weight": 0.25},
-            {"indicator": "Network Gateway Logs", "status": "Timeout Errors", "weight": 0.20},
-            {"indicator": "Historical Pattern Match", "status": "Matches Digital Failure", "weight": 0.20}
-        ],
-        "recommendation": "No physical inspection required. Generate automated DAHS reset ticket.",
-        "false_positive_prevented": True,
-        "estimated_audit_hours_saved": 8,
-        "generated_at": datetime.utcnow().isoformat()
-    }
-
-
-@router.post("/auto-healer/analyze-logs")
-async def analyze_dahs_logs(logs: List[OCEMSLog]):
-    """Analyze DAHS logs to identify communication vs pollution issues"""
-    return {
-        "logs_analyzed": len(logs),
-        "analysis_results": {
-            "digital_failures": 15,
-            "true_events": 2,
-            "indeterminate": 3
-        },
-        "patterns_identified": [
-            "Clock synchronization failures at 00:00 UTC",
-            "Network gateway timeouts during peak hours"
-        ]
-    }
-
-
-@router.get("/bandit/dispatch")
-async def get_audit_dispatch():
-    """
-    Contextual Bandit Dispatcher: Get optimized audit schedule
-    using LinUCB algorithm to balance exploration vs exploitation
-    """
-    return {
-        "dispatch_date": datetime.utcnow().date().isoformat(),
-        "algorithm": "LinUCB (Linear Upper Confidence Bound)",
-        "optimization_objective": "Maximize violation detection with limited inspectors",
-        "available_inspectors": 5,
-        "recommended_audits": [
-            {
-                "rank": 1,
-                "factory_id": "FAC_001",
-                "factory_name": "Heavy Industries Ltd",
-                "location": "Industrial Zone A",
-                "violation_probability": 0.78,
-                "strategy": "exploitation",
-                "reasoning": "Known repeat offender, high historical violation rate"
-            },
-            {
-                "rank": 2,
-                "factory_id": "FAC_002",
-                "factory_name": "Chemical Works",
-                "location": "Industrial Zone B",
-                "violation_probability": 0.65,
-                "strategy": "exploitation",
-                "reasoning": "Recent data anomalies, similar profile to violators"
-            },
-            {
-                "rank": 3,
-                "factory_id": "FAC_003",
-                "factory_name": "New Manufacturing Unit",
-                "location": "Industrial Zone C",
-                "violation_probability": 0.45,
-                "strategy": "exploration",
-                "reasoning": "New facility, insufficient data for accurate prediction"
-            }
-        ],
-        "exploration_exploitation_ratio": "30/70",
-        "expected_violations_caught": 3.2,
-        "budget_efficiency_score": 0.89
-    }
-
-
-@router.post("/bandit/feedback")
-async def submit_audit_feedback(
+async def diagnose_factory(
     factory_id: str,
-    violation_found: bool,
-    violation_details: Optional[dict] = None
+    parameter: Optional[str] = Query(None, description="Specific parameter to diagnose"),
+    hours: int = Query(6, ge=1, le=48),
 ):
-    """Submit audit results to update the contextual bandit model"""
+    """
+    OCEMS Auto-Healer: Diagnose sensor faults vs real pollution events.
+    Uses 4-indicator weighted scoring: temporal_gradient, cross_sensor,
+    stuck_value, statistical_outlier.
+    """
+    try:
+        result = await auto_healer.diagnose(factory_id, parameter=parameter, hours=hours)
+        return result.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")
+
+
+@router.get("/exceedances")
+async def get_exceedances(
+    city: Optional[str] = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """Get recent OCEMS exceedance events."""
+    try:
+        client = ch_writer._get_client()
+        city_filter = f"AND city = '{city}'" if city else ""
+        result = client.query(f"""
+            SELECT factory_id, parameter, city, industry_type,
+                   value, emission_limit, exceedance_pct,
+                   timestamp, anomaly_type, quality_flag
+            FROM ocems_raw
+            WHERE value > emission_limit
+              AND timestamp >= now() - INTERVAL {hours} HOUR
+              {city_filter}
+            ORDER BY exceedance_pct DESC
+            LIMIT 200
+        """)
+        columns = result.column_names
+        rows = [dict(zip(columns, row)) for row in result.result_rows]
+    except Exception:
+        rows = []
+
     return {
-        "factory_id": factory_id,
-        "feedback_recorded": True,
-        "model_updated": True,
-        "new_violation_probability": 0.82 if violation_found else 0.35,
-        "message": "Contextual bandit model weights updated successfully"
+        "exceedances": [
+            {
+                "factory_id": r.get("factory_id", ""),
+                "parameter": r.get("parameter", ""),
+                "city": r.get("city", ""),
+                "industry_type": r.get("industry_type", ""),
+                "value": round(r.get("value", 0), 2),
+                "limit": r.get("emission_limit", 0),
+                "exceedance_pct": round(r.get("exceedance_pct", 0), 1),
+                "timestamp": str(r.get("timestamp", "")),
+                "anomaly_type": r.get("anomaly_type", ""),
+                "quality_flag": r.get("quality_flag", ""),
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+        "filter": {"city": city, "hours": hours},
     }

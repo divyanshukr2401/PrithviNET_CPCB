@@ -1,460 +1,689 @@
 #!/usr/bin/env python3
 """
-PRITHVINET - IoT Sensor Data Simulator
+PRITHVINET - Chhattisgarh IoT Sensor Data Simulator
+====================================================
+Simulates real-time environmental sensor data for 6 CG cities:
+  Raipur, Bhilai, Korba, Bilaspur, Durg, Raigarh
 
-Simulates real-time environmental sensor data for:
-- Air Quality (PM2.5, PM10, SO2, NO2, CO, O3, AQI)
-- Water Quality (pH, DO, BOD, COD, TDS, Turbidity, Conductivity)
-- Noise Levels (LAeq, LAmax, LAmin, L10, L90, L50)
+Generates data for:
+  - Air Quality: PM2.5, PM10, NO2, SO2, CO, O3, NH3, Pb (8 params)
+  - Water Quality: pH, DO, BOD, COD, TSS, Turbidity, Conductivity, Temperature, Nitrates, Phosphates (10 params)
+  - Noise: Leq, Lmax, Lmin, L10, L50, L90, Lden (7 metrics)
+  - OCEMS: PM, SO2, NOx, CO (4 params per factory)
 
-This simulator generates realistic data patterns including:
-- Diurnal variations (day/night cycles)
-- Industrial emission spikes (OCEMS pattern)
-- Random sensor malfunctions for Auto-Healer testing
-- Geographic clustering based on station location
+Features:
+  - Diurnal variation (rush hour peaks, nighttime lows)
+  - Zone-specific baselines (industrial > commercial > residential)
+  - Sensor malfunction injection (stuck, spike, drift, dropout, calibration)
+  - Async HTTP push to backend ingest API
+  - Uses real CG station definitions from chhattisgarh_stations.py
 """
 
 import asyncio
 import random
 import math
+import json
+import sys
+import os
 from datetime import datetime, timedelta
 from typing import Optional
-import json
+from pathlib import Path
 
-from faker import Faker
 from loguru import logger
 
-fake = Faker()
+# Add project root to path so we can import station definitions
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-# Configuration
-NUM_AIR_STATIONS = 15
-NUM_WATER_STATIONS = 10
-NUM_NOISE_STATIONS = 8
-SIMULATION_INTERVAL_SECONDS = 5  # Generate data every 5 seconds
+from chhattisgarh_stations import (
+    AIR_STATIONS, WATER_STATIONS, NOISE_STATIONS, FACTORIES,
+    NAAQS_LIMITS, WQ_STANDARDS, CPCB_NOISE_LIMITS, OCEMS_EMISSION_LIMITS,
+    Station, Factory, StationType, ZoneType,
+)
+
+# Try importing httpx for HTTP push (optional)
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
+    logger.warning("httpx not installed — HTTP push disabled, writing to file/console only")
 
 
-class SensorSimulator:
-    """Base class for environmental sensor simulation."""
-    
-    def __init__(self, station_id: str, lat: float, lon: float, station_type: str):
-        self.station_id = station_id
-        self.lat = lat
-        self.lon = lon
-        self.station_type = station_type
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+INGEST_BASE_URL = os.getenv("INGEST_BASE_URL", "http://localhost:8000/api/v1/ingest")
+SIMULATION_INTERVAL_SECONDS = 5  # For real-time mode
+ENABLE_HTTP_PUSH = os.getenv("ENABLE_HTTP_PUSH", "false").lower() == "true"
+
+
+# ============================================================================
+# AIR QUALITY SENSOR
+# ============================================================================
+
+class AirQualitySensor:
+    """
+    Simulates a CAAQMS station in Chhattisgarh.
+    8 parameters: PM2.5, PM10, NO2, SO2, CO, O3, NH3, Pb
+    """
+
+    # Zone-specific baselines (µg/m³ except CO in mg/m³)
+    BASELINES = {
+        "industrial": {"PM2.5": 85, "PM10": 160, "SO2": 35, "NO2": 40, "CO": 1800, "O3": 35, "NH3": 25, "Pb": 0.20},
+        "commercial": {"PM2.5": 60, "PM10": 110, "SO2": 20, "NO2": 35, "CO": 1200, "O3": 42, "NH3": 20, "Pb": 0.12},
+        "residential": {"PM2.5": 45, "PM10": 85, "SO2": 12, "NO2": 25, "CO": 800, "O3": 48, "NH3": 18, "Pb": 0.08},
+        "silence": {"PM2.5": 40, "PM10": 80, "SO2": 10, "NO2": 20, "CO": 600, "O3": 50, "NH3": 15, "Pb": 0.06},
+        "mining": {"PM2.5": 70, "PM10": 200, "SO2": 30, "NO2": 25, "CO": 1000, "O3": 30, "NH3": 12, "Pb": 0.25},
+        "riverfront": {"PM2.5": 42, "PM10": 78, "SO2": 10, "NO2": 22, "CO": 700, "O3": 52, "NH3": 16, "Pb": 0.07},
+    }
+
+    # Noise stds for gaussian variation per parameter
+    NOISE_STD = {"PM2.5": 12, "PM10": 25, "SO2": 6, "NO2": 8, "CO": 200, "O3": 10, "NH3": 5, "Pb": 0.03}
+
+    PARAMS = ["PM2.5", "PM10", "NO2", "SO2", "CO", "O3", "NH3", "Pb"]
+    UNITS = {"PM2.5": "µg/m³", "PM10": "µg/m³", "NO2": "µg/m³", "SO2": "µg/m³",
+             "CO": "µg/m³", "O3": "µg/m³", "NH3": "µg/m³", "Pb": "µg/m³"}
+
+    def __init__(self, station: Station):
+        self.station = station
+        zone = station.zone.value
+        self.baseline = self.BASELINES.get(zone, self.BASELINES["residential"])
         self.is_malfunctioning = False
         self.malfunction_type: Optional[str] = None
-        
-    def _get_diurnal_factor(self) -> float:
-        """Calculate time-of-day factor for realistic patterns."""
-        hour = datetime.now().hour
-        # Peak pollution during morning (8-10) and evening (17-20) rush hours
-        if 8 <= hour <= 10 or 17 <= hour <= 20:
-            return 1.3 + random.uniform(0, 0.2)
-        # Low pollution during night (1-5)
-        elif 1 <= hour <= 5:
-            return 0.6 + random.uniform(0, 0.1)
-        else:
-            return 1.0 + random.uniform(-0.1, 0.1)
-    
+        self._stuck_values: dict = {}
+
+    def generate_readings(self, timestamp: Optional[datetime] = None) -> list[dict]:
+        """Generate readings for all 8 parameters at one timestamp."""
+        ts = timestamp or datetime.utcnow()
+        diurnal = self._diurnal_factor(ts)
+        is_malfunction = self._maybe_malfunction()
+
+        readings = []
+        for param in self.PARAMS:
+            base = self.baseline[param]
+            noise_std = self.NOISE_STD[param]
+
+            if is_malfunction:
+                value, anomaly_type, quality_flag = self._malfunction_value(param, base, diurnal)
+            else:
+                # O3 is inversely related to traffic (peaks midday, not rush hour)
+                if param == "O3":
+                    factor = 2.0 - diurnal  # inverse diurnal
+                else:
+                    factor = diurnal
+
+                value = max(0, base * factor + random.gauss(0, noise_std))
+                anomaly_type = ""
+                quality_flag = "valid"
+
+            aqi = self._sub_aqi(param, value)
+
+            readings.append({
+                "station_id": self.station.station_id,
+                "timestamp": ts.isoformat(),
+                "parameter": param,
+                "value": round(value, 3),
+                "unit": self.UNITS[param],
+                "aqi": aqi,
+                "city": self.station.city,
+                "latitude": self.station.latitude,
+                "longitude": self.station.longitude,
+                "zone": self.station.zone.value,
+                "is_anomaly": anomaly_type != "",
+                "anomaly_type": anomaly_type,
+                "quality_flag": quality_flag,
+            })
+
+        return readings
+
+    def _diurnal_factor(self, ts: datetime) -> float:
+        hour = ts.hour + ts.minute / 60.0
+        # Rush hours: 8-10 AM and 5-8 PM
+        morning = 1.3 * math.exp(-0.5 * ((hour - 9) / 1.5) ** 2)
+        evening = 1.2 * math.exp(-0.5 * ((hour - 18.5) / 2.0) ** 2)
+        # Night low: 1-5 AM
+        night = -0.35 * math.exp(-0.5 * ((hour - 3) / 2.0) ** 2)
+        return 1.0 + morning + evening + night + random.uniform(-0.05, 0.05)
+
     def _maybe_malfunction(self) -> bool:
-        """Randomly trigger sensor malfunction (1% chance)."""
-        if random.random() < 0.01:
+        if random.random() < 0.008:  # 0.8% chance per tick
             self.is_malfunctioning = True
-            self.malfunction_type = random.choice([
-                "stuck_value",      # Sensor reading stuck at constant
-                "spike",            # Sudden unrealistic spike
-                "zero_reading",     # Sensor reporting zeros
-                "drift",            # Gradual drift from calibration
-                "communication_error"  # No data transmission
-            ])
+            self.malfunction_type = random.choice(["stuck", "spike", "drift", "dropout", "calibration"])
             return True
-        elif self.is_malfunctioning and random.random() < 0.1:
-            # 10% chance to recover from malfunction
+        elif self.is_malfunctioning and random.random() < 0.12:
+            self.is_malfunctioning = False
+            self.malfunction_type = None
+            self._stuck_values = {}
+        return self.is_malfunctioning
+
+    def _malfunction_value(self, param: str, base: float, diurnal: float) -> tuple[float, str, str]:
+        mtype = self.malfunction_type
+        if mtype == "stuck":
+            if param not in self._stuck_values:
+                self._stuck_values[param] = base * diurnal + random.gauss(0, 2)
+            return self._stuck_values[param], "stuck", "suspect"
+        elif mtype == "spike":
+            return base * random.uniform(5, 15), "spike", "suspect"
+        elif mtype == "drift":
+            drift = 1.5 + random.uniform(0, 0.5)
+            return max(0, base * diurnal * drift + random.gauss(0, 3)), "drift", "suspect"
+        elif mtype == "dropout":
+            return 0.0, "dropout", "invalid"
+        elif mtype == "calibration":
+            offset = base * random.uniform(0.2, 0.4)
+            return max(0, base * diurnal + offset), "calibration", "suspect"
+        return max(0, base * diurnal), "", "valid"
+
+    def _sub_aqi(self, param: str, value: float) -> int:
+        """Simplified Indian NAQI sub-index for a single parameter."""
+        breakpoints = {
+            "PM2.5": [(0, 30, 0, 50), (30, 60, 50, 100), (60, 90, 100, 200), (90, 120, 200, 300), (120, 250, 300, 400), (250, 500, 400, 500)],
+            "PM10": [(0, 50, 0, 50), (50, 100, 50, 100), (100, 250, 100, 200), (250, 350, 200, 300), (350, 430, 300, 400), (430, 600, 400, 500)],
+            "NO2": [(0, 40, 0, 50), (40, 80, 50, 100), (80, 180, 100, 200), (180, 280, 200, 300), (280, 400, 300, 400), (400, 600, 400, 500)],
+            "SO2": [(0, 40, 0, 50), (40, 80, 50, 100), (80, 380, 100, 200), (380, 800, 200, 300), (800, 1600, 300, 400), (1600, 2400, 400, 500)],
+            "CO": [(0, 1000, 0, 50), (1000, 2000, 50, 100), (2000, 10000, 100, 200), (10000, 17000, 200, 300), (17000, 34000, 300, 400), (34000, 50000, 400, 500)],
+            "O3": [(0, 50, 0, 50), (50, 100, 50, 100), (100, 168, 100, 200), (168, 208, 200, 300), (208, 748, 300, 400), (748, 1000, 400, 500)],
+            "NH3": [(0, 200, 0, 50), (200, 400, 50, 100), (400, 800, 100, 200), (800, 1200, 200, 300), (1200, 1800, 300, 400), (1800, 2400, 400, 500)],
+            "Pb": [(0, 0.5, 0, 50), (0.5, 1.0, 50, 100), (1.0, 2.0, 100, 200), (2.0, 3.0, 200, 300), (3.0, 3.5, 300, 400), (3.5, 5.0, 400, 500)],
+        }
+        bps = breakpoints.get(param, [(0, 100, 0, 100)])
+        for c_lo, c_hi, i_lo, i_hi in bps:
+            if c_lo <= value <= c_hi:
+                return int(i_lo + (value - c_lo) * (i_hi - i_lo) / max(1, c_hi - c_lo))
+        return 500 if value > bps[-1][1] else 0
+
+
+# ============================================================================
+# WATER QUALITY SENSOR
+# ============================================================================
+
+class WaterQualitySensor:
+    """
+    Simulates a water quality monitoring station on CG rivers.
+    10 parameters: pH, DO, BOD, COD, TSS, Turbidity, Conductivity, Temperature, Nitrates, Phosphates
+    """
+
+    # Zone-specific baselines
+    BASELINES = {
+        "riverfront": {"pH": 7.2, "DO": 6.5, "BOD": 2.5, "COD": 15, "TSS": 40, "Turbidity": 8, "Conductivity": 400, "Temperature": 26, "Nitrates": 8, "Phosphates": 0.8},
+        "industrial": {"pH": 6.8, "DO": 4.5, "BOD": 5.0, "COD": 30, "TSS": 80, "Turbidity": 20, "Conductivity": 700, "Temperature": 28, "Nitrates": 18, "Phosphates": 2.5},
+        "commercial": {"pH": 7.0, "DO": 5.5, "BOD": 3.5, "COD": 20, "TSS": 55, "Turbidity": 12, "Conductivity": 500, "Temperature": 27, "Nitrates": 12, "Phosphates": 1.5},
+    }
+    NOISE_STD = {"pH": 0.3, "DO": 1.0, "BOD": 0.8, "COD": 5, "TSS": 10, "Turbidity": 4, "Conductivity": 60, "Temperature": 1.5, "Nitrates": 3, "Phosphates": 0.4}
+    UNITS = {"pH": "pH", "DO": "mg/L", "BOD": "mg/L", "COD": "mg/L", "TSS": "mg/L", "Turbidity": "NTU", "Conductivity": "µS/cm", "Temperature": "°C", "Nitrates": "mg/L", "Phosphates": "mg/L"}
+    PARAMS = ["pH", "DO", "BOD", "COD", "TSS", "Turbidity", "Conductivity", "Temperature", "Nitrates", "Phosphates"]
+
+    def __init__(self, station: Station):
+        self.station = station
+        zone = station.zone.value
+        self.baseline = self.BASELINES.get(zone, self.BASELINES["riverfront"])
+        self.is_malfunctioning = False
+        self.malfunction_type: Optional[str] = None
+
+    def generate_readings(self, timestamp: Optional[datetime] = None) -> list[dict]:
+        ts = timestamp or datetime.utcnow()
+        # Water quality has mild diurnal variation (temperature-driven)
+        hour = ts.hour + ts.minute / 60.0
+        temp_factor = 1.0 + 0.1 * math.sin(2 * math.pi * (hour - 14) / 24)  # peak at 2 PM
+
+        is_malfunction = self._maybe_malfunction()
+        readings = []
+
+        for param in self.PARAMS:
+            base = self.baseline[param]
+            std = self.NOISE_STD[param]
+
+            if is_malfunction:
+                value = base * random.uniform(1.5, 3.0) if random.random() > 0.5 else 0.0
+                anomaly_type = self.malfunction_type or "spike"
+                quality_flag = "suspect"
+            else:
+                if param == "Temperature":
+                    value = base * temp_factor + random.gauss(0, std)
+                elif param == "DO":
+                    # DO decreases with temperature
+                    value = base * (2.0 - temp_factor) + random.gauss(0, std)
+                    value = max(0, value)
+                elif param == "pH":
+                    value = base + random.gauss(0, std)
+                    value = max(5.5, min(9.5, value))
+                else:
+                    value = max(0, base + random.gauss(0, std))
+                anomaly_type = ""
+                quality_flag = "valid"
+
+            # Simple WQI sub-index
+            wqi = self._sub_wqi(param, value)
+
+            readings.append({
+                "station_id": self.station.station_id,
+                "timestamp": ts.isoformat(),
+                "parameter": param,
+                "value": round(value, 3),
+                "unit": self.UNITS[param],
+                "wqi": round(wqi, 1),
+                "river_name": self.station.river_name or "",
+                "city": self.station.city,
+                "latitude": self.station.latitude,
+                "longitude": self.station.longitude,
+                "is_anomaly": anomaly_type != "",
+                "anomaly_type": anomaly_type,
+                "quality_flag": quality_flag,
+            })
+
+        return readings
+
+    def _maybe_malfunction(self) -> bool:
+        if random.random() < 0.005:
+            self.is_malfunctioning = True
+            self.malfunction_type = random.choice(["spike", "drift", "dropout"])
+            return True
+        elif self.is_malfunctioning and random.random() < 0.15:
+            self.is_malfunctioning = False
+            self.malfunction_type = None
+        return self.is_malfunctioning
+
+    def _sub_wqi(self, param: str, value: float) -> float:
+        """Simple WQI sub-index (0-100, 100=best)."""
+        limits = WQ_STANDARDS.get(param, {})
+        if "max" in limits:
+            return max(0, 100 * (1 - value / limits["max"]))
+        elif "min" in limits:
+            return min(100, 100 * value / limits["min"]) if limits["min"] > 0 else 50
+        return 50.0
+
+
+# ============================================================================
+# NOISE SENSOR
+# ============================================================================
+
+class NoiseSensor:
+    """
+    Simulates noise monitoring with CNOSSOS-EU metrics + Lden computation.
+    7 metrics: Leq, Lmax, Lmin, L10, L50, L90, Lden
+    """
+
+    # Zone baselines for Leq (dB(A))
+    BASELINES = {
+        "industrial": 70,
+        "commercial": 60,
+        "residential": 48,
+        "silence": 42,
+    }
+
+    METRICS = ["Leq", "Lmax", "Lmin", "L10", "L50", "L90", "Lden"]
+
+    def __init__(self, station: Station):
+        self.station = station
+        zone = station.zone.value
+        self.base_leq = self.BASELINES.get(zone, 50)
+        self.limits = CPCB_NOISE_LIMITS.get(zone, {"day": 65, "night": 55})
+        self.is_malfunctioning = False
+        self.malfunction_type: Optional[str] = None
+        # Keep a buffer for Lden calculation (24h of hourly Leq values)
+        self._hourly_leq_buffer: list[float] = []
+
+    def generate_readings(self, timestamp: Optional[datetime] = None) -> list[dict]:
+        ts = timestamp or datetime.utcnow()
+        hour = ts.hour + ts.minute / 60.0
+        is_night = hour < 6 or hour >= 22
+        is_evening = 19 <= hour < 22
+
+        is_malfunction = self._maybe_malfunction()
+
+        if is_malfunction:
+            leq = self.base_leq + random.uniform(20, 40)  # abnormally high
+            anomaly_type = self.malfunction_type or "spike"
+            quality_flag = "suspect"
+        else:
+            # Diurnal noise pattern
+            if is_night:
+                factor = 0.7 + random.uniform(-0.05, 0.05)
+            elif 7 <= hour <= 9 or 17 <= hour <= 19:
+                factor = 1.25 + random.uniform(-0.05, 0.1)
+            else:
+                factor = 1.0 + random.uniform(-0.1, 0.1)
+
+            leq = self.base_leq * factor + random.gauss(0, 3)
+            anomaly_type = ""
+            quality_flag = "valid"
+
+        # Derive other metrics from Leq
+        lmax = leq + random.uniform(5, 18)
+        lmin = max(25, leq - random.uniform(8, 20))
+        l10 = leq + random.uniform(2, 7)
+        l50 = leq + random.uniform(-2, 2)
+        l90 = max(25, leq - random.uniform(5, 12))
+
+        # Lden: day-evening-night weighted metric
+        self._hourly_leq_buffer.append(leq)
+        if len(self._hourly_leq_buffer) > 24:
+            self._hourly_leq_buffer = self._hourly_leq_buffer[-24:]
+        lden = self._compute_lden()
+
+        # Compliance check
+        limit = self.limits["night"] if is_night else self.limits["day"]
+        is_exceedance = leq > limit
+
+        day_limit = self.limits["day"]
+        night_limit = self.limits["night"]
+
+        readings = []
+        metrics_values = {
+            "Leq": leq, "Lmax": lmax, "Lmin": lmin,
+            "L10": l10, "L50": l50, "L90": l90, "Lden": lden,
+        }
+
+        for metric in self.METRICS:
+            val = metrics_values[metric]
+            readings.append({
+                "station_id": self.station.station_id,
+                "timestamp": ts.isoformat(),
+                "metric": metric,
+                "value": round(val, 1),
+                "city": self.station.city,
+                "latitude": self.station.latitude,
+                "longitude": self.station.longitude,
+                "zone": self.station.zone.value,
+                "day_limit": day_limit,
+                "night_limit": night_limit,
+                "is_exceedance": is_exceedance and metric == "Leq",
+                "is_anomaly": anomaly_type != "",
+                "anomaly_type": anomaly_type,
+                "quality_flag": quality_flag,
+            })
+
+        return readings
+
+    def _compute_lden(self) -> float:
+        """
+        Compute Lden (day-evening-night indicator) per EU Directive 2002/49/EC.
+        Lden = 10 * log10( (12*10^(Ld/10) + 4*10^((Le+5)/10) + 8*10^((Ln+10)/10) ) / 24 )
+        """
+        buf = self._hourly_leq_buffer
+        if len(buf) < 3:
+            return buf[-1] if buf else self.base_leq
+
+        # Split buffer into day (7-19), evening (19-22), night (22-7) approximation
+        # Use available data as proxy
+        n = len(buf)
+        day_vals = buf[:max(1, n // 2)]
+        eve_vals = buf[max(1, n // 2):max(2, 3 * n // 4)]
+        night_vals = buf[max(2, 3 * n // 4):]
+
+        def energy_avg(vals):
+            if not vals:
+                return self.base_leq
+            return 10 * math.log10(sum(10 ** (v / 10) for v in vals) / len(vals))
+
+        ld = energy_avg(day_vals)
+        le = energy_avg(eve_vals)
+        ln = energy_avg(night_vals)
+
+        lden = 10 * math.log10(
+            (12 * 10 ** (ld / 10) + 4 * 10 ** ((le + 5) / 10) + 8 * 10 ** ((ln + 10) / 10)) / 24
+        )
+        return lden
+
+    def _maybe_malfunction(self) -> bool:
+        if random.random() < 0.005:
+            self.is_malfunctioning = True
+            self.malfunction_type = random.choice(["spike", "stuck", "dropout"])
+            return True
+        elif self.is_malfunctioning and random.random() < 0.15:
             self.is_malfunctioning = False
             self.malfunction_type = None
         return self.is_malfunctioning
 
 
-class AirQualitySensor(SensorSimulator):
-    """Simulates CPCB-style Continuous Ambient Air Quality Monitoring (CAAQM)."""
-    
-    # Baseline values for different station types (industrial, residential, commercial)
-    BASELINES = {
-        "industrial": {"pm25": 80, "pm10": 150, "so2": 40, "no2": 45, "co": 1.5, "o3": 35},
-        "residential": {"pm25": 45, "pm10": 90, "so2": 15, "no2": 25, "co": 0.8, "o3": 45},
-        "commercial": {"pm25": 60, "pm10": 120, "so2": 25, "no2": 35, "co": 1.2, "o3": 40},
+# ============================================================================
+# OCEMS FACTORY SENSOR
+# ============================================================================
+
+class OCEMSSensor:
+    """
+    Simulates OCEMS (Online Continuous Emission Monitoring System) for a factory.
+    Parameters: PM, SO2, NOx, CO (stack emissions in mg/Nm³)
+    """
+
+    # Base emission levels as fraction of limit (0.5 = 50% of limit normally)
+    BASE_FRACTION = {
+        "Thermal Power": 0.55,
+        "Integrated Steel": 0.65,
+        "Sponge Iron": 0.70,
+        "Cement": 0.50,
+        "Aluminium Smelting": 0.60,
+        "Coal Mining": 0.45,
+        "Coal Washery": 0.40,
+        "Rice Mill": 0.35,
+        "Ferro Alloys": 0.65,
     }
-    
-    def __init__(self, station_id: str, lat: float, lon: float, zone_type: str = "residential"):
-        super().__init__(station_id, lat, lon, "air_quality")
-        self.zone_type = zone_type
-        self.baseline = self.BASELINES.get(zone_type, self.BASELINES["residential"])
-        self._stuck_values = {}
-        
-    def generate_reading(self) -> dict:
-        """Generate a single air quality reading."""
-        timestamp = datetime.utcnow().isoformat()
-        diurnal = self._get_diurnal_factor()
-        
-        if self._maybe_malfunction():
-            return self._generate_malfunction_reading(timestamp)
-        
-        # Normal readings with realistic variation
-        pm25 = max(0, self.baseline["pm25"] * diurnal + random.gauss(0, 10))
-        pm10 = max(0, self.baseline["pm10"] * diurnal + random.gauss(0, 20))
-        so2 = max(0, self.baseline["so2"] * diurnal + random.gauss(0, 5))
-        no2 = max(0, self.baseline["no2"] * diurnal + random.gauss(0, 8))
-        co = max(0, self.baseline["co"] * diurnal + random.gauss(0, 0.2))
-        o3 = max(0, self.baseline["o3"] * (2 - diurnal) + random.gauss(0, 10))  # O3 inversely related
-        
-        # Calculate AQI (simplified Indian AQI)
-        aqi = self._calculate_aqi(pm25, pm10, so2, no2, co, o3)
-        
-        return {
-            "station_id": self.station_id,
-            "timestamp": timestamp,
-            "lat": self.lat,
-            "lon": self.lon,
-            "zone_type": self.zone_type,
-            "parameters": {
-                "pm25": round(pm25, 2),
-                "pm10": round(pm10, 2),
-                "so2": round(so2, 2),
-                "no2": round(no2, 2),
-                "co": round(co, 3),
-                "o3": round(o3, 2),
-            },
-            "aqi": round(aqi),
-            "aqi_category": self._aqi_category(aqi),
-            "sensor_status": "normal",
-            "data_quality_flag": "valid"
-        }
-    
-    def _generate_malfunction_reading(self, timestamp: str) -> dict:
-        """Generate malfunction data for OCEMS Auto-Healer testing."""
-        if self.malfunction_type == "communication_error":
-            return {
-                "station_id": self.station_id,
-                "timestamp": timestamp,
-                "error": "COMMUNICATION_TIMEOUT",
-                "sensor_status": "error",
-                "malfunction_type": self.malfunction_type
-            }
-        
-        # Stuck value malfunction
-        if self.malfunction_type == "stuck_value":
-            if not self._stuck_values:
-                self._stuck_values = {
-                    "pm25": random.uniform(30, 100),
-                    "pm10": random.uniform(60, 200),
-                }
-            params = {"pm25": self._stuck_values["pm25"], "pm10": self._stuck_values["pm10"]}
-        
-        # Spike malfunction (unrealistic values)
-        elif self.malfunction_type == "spike":
-            params = {
-                "pm25": random.uniform(800, 1500),  # Unrealistically high
-                "pm10": random.uniform(1500, 3000),
-            }
-        
-        # Zero readings
-        elif self.malfunction_type == "zero_reading":
-            params = {"pm25": 0.0, "pm10": 0.0, "so2": 0.0, "no2": 0.0}
-        
-        else:  # drift
-            diurnal = self._get_diurnal_factor()
-            drift_factor = 1.5 + random.uniform(0, 0.5)
-            params = {
-                "pm25": round(self.baseline["pm25"] * diurnal * drift_factor, 2),
-                "pm10": round(self.baseline["pm10"] * diurnal * drift_factor, 2),
-            }
-        
-        return {
-            "station_id": self.station_id,
-            "timestamp": timestamp,
-            "lat": self.lat,
-            "lon": self.lon,
-            "parameters": params,
-            "sensor_status": "malfunction",
-            "malfunction_type": self.malfunction_type,
-            "data_quality_flag": "suspect"
-        }
-    
-    def _calculate_aqi(self, pm25, pm10, so2, no2, co, o3) -> float:
-        """Simplified Indian AQI calculation (PM2.5 dominant)."""
-        # Sub-indices (simplified linear interpolation)
-        pm25_si = (pm25 / 60) * 100 if pm25 <= 60 else 100 + ((pm25 - 60) / 30) * 100
-        return min(500, pm25_si)
-    
-    def _aqi_category(self, aqi: float) -> str:
-        if aqi <= 50: return "Good"
-        elif aqi <= 100: return "Satisfactory"
-        elif aqi <= 200: return "Moderate"
-        elif aqi <= 300: return "Poor"
-        elif aqi <= 400: return "Very Poor"
-        else: return "Severe"
+
+    def __init__(self, factory: Factory):
+        self.factory = factory
+        self.limits = OCEMS_EMISSION_LIMITS.get(factory.industry_type, {})
+        self.base_frac = self.BASE_FRACTION.get(factory.industry_type, 0.5)
+        self.is_malfunctioning = False
+        self.malfunction_type: Optional[str] = None
+        self._stuck_values: dict = {}
+        self.sensor_health = 100.0
+
+    def generate_readings(self, timestamp: Optional[datetime] = None) -> list[dict]:
+        ts = timestamp or datetime.utcnow()
+        is_malfunction = self._maybe_malfunction()
+
+        readings = []
+        for param in self.factory.emission_params:
+            limit = self.limits.get(param, 100)
+            base_val = limit * self.base_frac
+
+            if is_malfunction:
+                value, anomaly_type, qf, health = self._malfunction_value(param, base_val, limit)
+            else:
+                # Normal: Gaussian around baseline with slight diurnal variation
+                hour = ts.hour
+                # Factories run 24/7 but have shift-change bumps
+                shift_factor = 1.0 + 0.1 * math.sin(2 * math.pi * (hour - 8) / 8)
+                value = max(0, base_val * shift_factor + random.gauss(0, base_val * 0.1))
+                anomaly_type = ""
+                qf = "valid"
+                health = min(100, self.sensor_health + random.uniform(0, 0.5))
+                self.sensor_health = health
+
+            exceedance_pct = max(0, (value / limit - 1) * 100) if limit > 0 else 0
+
+            readings.append({
+                "factory_id": self.factory.factory_id,
+                "timestamp": ts.isoformat(),
+                "parameter": param,
+                "value": round(value, 2),
+                "unit": "mg/Nm³",
+                "emission_limit": limit,
+                "exceedance_pct": round(exceedance_pct, 2),
+                "industry_type": self.factory.industry_type,
+                "city": self.factory.city,
+                "latitude": self.factory.latitude,
+                "longitude": self.factory.longitude,
+                "dahs_status": "online" if not is_malfunction else "degraded",
+                "sensor_health": round(self.sensor_health, 1),
+                "is_anomaly": anomaly_type != "",
+                "anomaly_type": anomaly_type,
+                "quality_flag": qf,
+            })
+
+        return readings
+
+    def _maybe_malfunction(self) -> bool:
+        if random.random() < 0.01:
+            self.is_malfunctioning = True
+            self.malfunction_type = random.choice(["stuck", "spike", "drift", "flatline", "calibration_needed"])
+            self.sensor_health = max(0, self.sensor_health - random.uniform(10, 30))
+            return True
+        elif self.is_malfunctioning and random.random() < 0.08:
+            self.is_malfunctioning = False
+            self.malfunction_type = None
+            self._stuck_values = {}
+            self.sensor_health = min(100, self.sensor_health + random.uniform(5, 15))
+        return self.is_malfunctioning
+
+    def _malfunction_value(self, param: str, base: float, limit: float) -> tuple[float, str, str, float]:
+        mtype = self.malfunction_type
+        health = max(0, self.sensor_health - random.uniform(0, 2))
+        if mtype == "stuck":
+            if param not in self._stuck_values:
+                self._stuck_values[param] = base + random.gauss(0, 1)
+            return self._stuck_values[param], "stuck", "suspect", health
+        elif mtype == "spike":
+            return limit * random.uniform(2, 5), "spike", "suspect", health
+        elif mtype == "drift":
+            return max(0, base * random.uniform(1.3, 2.0)), "drift", "suspect", health
+        elif mtype == "flatline":
+            return 0.0, "flatline", "invalid", health
+        elif mtype == "calibration_needed":
+            return max(0, base + base * random.uniform(0.15, 0.35)), "calibration_needed", "suspect", health
+        return base, "", "valid", health
 
 
-class WaterQualitySensor(SensorSimulator):
-    """Simulates water quality monitoring stations (rivers, groundwater)."""
-    
-    def __init__(self, station_id: str, lat: float, lon: float, water_body: str = "river"):
-        super().__init__(station_id, lat, lon, "water_quality")
-        self.water_body = water_body
-        
-    def generate_reading(self) -> dict:
-        """Generate water quality reading."""
-        timestamp = datetime.utcnow().isoformat()
-        
-        if self._maybe_malfunction():
-            return {
-                "station_id": self.station_id,
-                "timestamp": timestamp,
-                "sensor_status": "malfunction",
-                "malfunction_type": self.malfunction_type
-            }
-        
-        # Realistic water quality parameters
-        ph = 7.0 + random.gauss(0, 0.5)
-        ph = max(5.5, min(9.5, ph))
-        
-        do = max(0, 6.5 + random.gauss(0, 1.5))  # Dissolved Oxygen mg/L
-        bod = max(0, 3.0 + random.gauss(0, 1.0))  # BOD mg/L
-        cod = max(0, bod * 2.5 + random.gauss(0, 5))  # COD mg/L
-        tds = max(0, 350 + random.gauss(0, 100))  # Total Dissolved Solids mg/L
-        turbidity = max(0, 15 + random.gauss(0, 8))  # NTU
-        conductivity = max(0, 450 + random.gauss(0, 100))  # μS/cm
-        temperature = 25 + random.gauss(0, 3)  # °C
-        
-        # Water Quality Index (simplified)
-        wqi = self._calculate_wqi(ph, do, bod, tds, turbidity)
-        
-        return {
-            "station_id": self.station_id,
-            "timestamp": timestamp,
-            "lat": self.lat,
-            "lon": self.lon,
-            "water_body": self.water_body,
-            "parameters": {
-                "ph": round(ph, 2),
-                "dissolved_oxygen": round(do, 2),
-                "bod": round(bod, 2),
-                "cod": round(cod, 2),
-                "tds": round(tds, 1),
-                "turbidity": round(turbidity, 2),
-                "conductivity": round(conductivity, 1),
-                "temperature": round(temperature, 1),
-            },
-            "wqi": round(wqi),
-            "wqi_category": self._wqi_category(wqi),
-            "sensor_status": "normal",
-            "data_quality_flag": "valid"
-        }
-    
-    def _calculate_wqi(self, ph, do, bod, tds, turbidity) -> float:
-        """Simplified Water Quality Index."""
-        # Weighted average of normalized parameters
-        ph_score = 100 - abs(ph - 7) * 20
-        do_score = min(100, do * 15)
-        bod_score = max(0, 100 - bod * 10)
-        tds_score = max(0, 100 - tds / 10)
-        
-        return (ph_score * 0.3 + do_score * 0.3 + bod_score * 0.25 + tds_score * 0.15)
-    
-    def _wqi_category(self, wqi: float) -> str:
-        if wqi >= 80: return "Excellent"
-        elif wqi >= 60: return "Good"
-        elif wqi >= 40: return "Fair"
-        elif wqi >= 20: return "Poor"
-        else: return "Very Poor"
+# ============================================================================
+# SENSOR NETWORK
+# ============================================================================
 
+class ChhattisagrSensorNetwork:
+    """Complete sensor network for all 6 CG cities."""
 
-class NoiseSensor(SensorSimulator):
-    """Simulates CNOSSOS-EU compliant noise monitoring."""
-    
-    def __init__(self, station_id: str, lat: float, lon: float, zone_type: str = "residential"):
-        super().__init__(station_id, lat, lon, "noise")
-        self.zone_type = zone_type
-        
-        # CPCB noise standards (dB)
-        self.standards = {
-            "industrial": {"day": 75, "night": 70},
-            "commercial": {"day": 65, "night": 55},
-            "residential": {"day": 55, "night": 45},
-            "silence": {"day": 50, "night": 40},  # Schools, hospitals
-        }
-        
-    def generate_reading(self) -> dict:
-        """Generate noise level reading with CNOSSOS-EU metrics."""
-        timestamp = datetime.utcnow().isoformat()
-        hour = datetime.now().hour
-        is_night = hour < 6 or hour >= 22
-        
-        if self._maybe_malfunction():
-            return {
-                "station_id": self.station_id,
-                "timestamp": timestamp,
-                "sensor_status": "malfunction",
-                "malfunction_type": self.malfunction_type
-            }
-        
-        # Base noise level depends on zone and time
-        standard = self.standards.get(self.zone_type, self.standards["residential"])
-        base_level = standard["night"] if is_night else standard["day"]
-        
-        # Add realistic variations
-        laeq = base_level + random.gauss(-5, 8)  # Equivalent continuous level
-        lamax = laeq + random.uniform(5, 20)  # Maximum level
-        lamin = max(30, laeq - random.uniform(10, 25))  # Minimum level
-        
-        # Statistical noise levels (CNOSSOS-EU)
-        l10 = laeq + random.uniform(3, 8)   # Level exceeded 10% of time
-        l50 = laeq + random.uniform(-2, 2)  # Median level
-        l90 = laeq - random.uniform(5, 12)  # Background level (exceeded 90%)
-        
-        # Check compliance
-        limit = standard["night"] if is_night else standard["day"]
-        is_compliant = laeq <= limit
-        
-        return {
-            "station_id": self.station_id,
-            "timestamp": timestamp,
-            "lat": self.lat,
-            "lon": self.lon,
-            "zone_type": self.zone_type,
-            "period": "night" if is_night else "day",
-            "parameters": {
-                "laeq": round(laeq, 1),      # Equivalent continuous A-weighted
-                "lamax": round(lamax, 1),    # Maximum A-weighted
-                "lamin": round(lamin, 1),    # Minimum A-weighted
-                "l10": round(l10, 1),        # 10th percentile
-                "l50": round(l50, 1),        # 50th percentile (median)
-                "l90": round(l90, 1),        # 90th percentile (background)
-            },
-            "limit_db": limit,
-            "is_compliant": is_compliant,
-            "exceedance_db": round(max(0, laeq - limit), 1),
-            "sensor_status": "normal",
-            "data_quality_flag": "valid"
-        }
-
-
-class SensorNetwork:
-    """Manages a network of environmental sensors."""
-    
     def __init__(self):
-        self.air_sensors: list[AirQualitySensor] = []
-        self.water_sensors: list[WaterQualitySensor] = []
-        self.noise_sensors: list[NoiseSensor] = []
-        
-        self._initialize_sensors()
-        
-    def _initialize_sensors(self):
-        """Create sensor network across Delhi NCR region."""
-        # Delhi NCR bounding box (approximate)
-        lat_min, lat_max = 28.40, 28.85
-        lon_min, lon_max = 76.85, 77.35
-        
-        zone_types = ["industrial", "residential", "commercial"]
-        water_bodies = ["river", "groundwater", "lake", "canal"]
-        
-        # Initialize air quality stations
-        for i in range(NUM_AIR_STATIONS):
-            lat = random.uniform(lat_min, lat_max)
-            lon = random.uniform(lon_min, lon_max)
-            zone = random.choice(zone_types)
-            self.air_sensors.append(
-                AirQualitySensor(f"AQ-DEL-{i+1:03d}", lat, lon, zone)
-            )
-        
-        # Initialize water quality stations
-        for i in range(NUM_WATER_STATIONS):
-            lat = random.uniform(lat_min, lat_max)
-            lon = random.uniform(lon_min, lon_max)
-            water_body = random.choice(water_bodies)
-            self.water_sensors.append(
-                WaterQualitySensor(f"WQ-DEL-{i+1:03d}", lat, lon, water_body)
-            )
-        
-        # Initialize noise monitoring stations
-        for i in range(NUM_NOISE_STATIONS):
-            lat = random.uniform(lat_min, lat_max)
-            lon = random.uniform(lon_min, lon_max)
-            zone = random.choice(zone_types + ["silence"])
-            self.noise_sensors.append(
-                NoiseSensor(f"NS-DEL-{i+1:03d}", lat, lon, zone)
-            )
-        
-        logger.info(f"Initialized sensor network: {NUM_AIR_STATIONS} air, "
-                   f"{NUM_WATER_STATIONS} water, {NUM_NOISE_STATIONS} noise stations")
-    
-    def generate_all_readings(self) -> dict:
-        """Generate readings from all sensors."""
+        self.air_sensors = [AirQualitySensor(s) for s in AIR_STATIONS]
+        self.water_sensors = [WaterQualitySensor(s) for s in WATER_STATIONS]
+        self.noise_sensors = [NoiseSensor(s) for s in NOISE_STATIONS]
+        self.ocems_sensors = [OCEMSSensor(f) for f in FACTORIES]
+
+        logger.info(
+            f"CG Sensor Network initialized: "
+            f"{len(self.air_sensors)} air, {len(self.water_sensors)} water, "
+            f"{len(self.noise_sensors)} noise, {len(self.ocems_sensors)} OCEMS"
+        )
+
+    def generate_all_readings(self, timestamp: Optional[datetime] = None) -> dict:
+        """Generate one tick of readings from all sensors."""
+        ts = timestamp or datetime.utcnow()
         return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "air_quality": [s.generate_reading() for s in self.air_sensors],
-            "water_quality": [s.generate_reading() for s in self.water_sensors],
-            "noise": [s.generate_reading() for s in self.noise_sensors],
+            "timestamp": ts.isoformat(),
+            "air": [r for s in self.air_sensors for r in s.generate_readings(ts)],
+            "water": [r for s in self.water_sensors for r in s.generate_readings(ts)],
+            "noise": [r for s in self.noise_sensors for r in s.generate_readings(ts)],
+            "ocems": [r for s in self.ocems_sensors for r in s.generate_readings(ts)],
         }
 
 
-async def run_simulation(output_file: Optional[str] = None, console_output: bool = True):
-    """Run continuous sensor simulation."""
-    network = SensorNetwork()
+# ============================================================================
+# HTTP PUSH CLIENT
+# ============================================================================
+
+async def push_readings(readings: dict, client: Optional["httpx.AsyncClient"] = None):
+    """Push readings to backend ingest API via HTTP POST."""
+    if not client:
+        return
+
+    endpoints = {
+        "air": f"{INGEST_BASE_URL}/air",
+        "water": f"{INGEST_BASE_URL}/water",
+        "noise": f"{INGEST_BASE_URL}/noise",
+        "ocems": f"{INGEST_BASE_URL}/ocems",
+    }
+
+    for data_type, url in endpoints.items():
+        data = readings.get(data_type, [])
+        if not data:
+            continue
+        try:
+            resp = await client.post(url, json=data, timeout=10)
+            if resp.status_code != 200:
+                logger.warning(f"Ingest {data_type} returned {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            logger.error(f"Failed to push {data_type} readings: {e}")
+
+
+# ============================================================================
+# MAIN SIMULATION LOOP
+# ============================================================================
+
+async def run_simulation(
+    output_file: Optional[str] = None,
+    console_output: bool = True,
+    http_push: bool = False,
+    interval: int = 5,
+    max_iterations: Optional[int] = None,
+):
+    """Run continuous real-time sensor simulation."""
+    network = ChhattisagrSensorNetwork()
     iteration = 0
-    
-    logger.info(f"Starting PRITHVINET sensor simulation (interval: {SIMULATION_INTERVAL_SECONDS}s)")
-    
+
+    client = None
+    if http_push and HTTPX_AVAILABLE:
+        client = httpx.AsyncClient()
+        logger.info(f"HTTP push enabled → {INGEST_BASE_URL}")
+
+    logger.info(f"Starting PRITHVINET CG simulation (interval: {interval}s)")
+
     try:
         while True:
             iteration += 1
+            if max_iterations and iteration > max_iterations:
+                break
+
             readings = network.generate_all_readings()
-            
-            # Count malfunctions for Auto-Healer testing
-            malfunctions = sum(
-                1 for r in readings["air_quality"] 
-                if r.get("sensor_status") == "malfunction"
+
+            # Count anomalies
+            anomalies = sum(
+                1 for r in readings["air"] + readings["ocems"]
+                if r.get("is_anomaly")
             )
-            
+
             if console_output:
-                logger.info(f"Iteration {iteration}: Generated {NUM_AIR_STATIONS + NUM_WATER_STATIONS + NUM_NOISE_STATIONS} readings "
-                           f"(malfunctions: {malfunctions})")
-                
-                # Show sample readings
-                if iteration % 10 == 1:
-                    sample_air = readings["air_quality"][0]
-                    if "parameters" in sample_air:
-                        logger.debug(f"Sample Air: PM2.5={sample_air['parameters'].get('pm25', 'N/A')} μg/m³, "
-                                    f"AQI={sample_air.get('aqi', 'N/A')} ({sample_air.get('aqi_category', 'N/A')})")
-            
+                total = sum(len(readings[k]) for k in ["air", "water", "noise", "ocems"])
+                logger.info(
+                    f"Tick {iteration}: {total} readings "
+                    f"(air={len(readings['air'])}, water={len(readings['water'])}, "
+                    f"noise={len(readings['noise'])}, ocems={len(readings['ocems'])}) "
+                    f"anomalies={anomalies}"
+                )
+
+            # HTTP push
+            if http_push and client:
+                await push_readings(readings, client)
+
+            # File output
             if output_file:
                 with open(output_file, "a") as f:
-                    f.write(json.dumps(readings) + "\n")
-            
-            await asyncio.sleep(SIMULATION_INTERVAL_SECONDS)
-            
+                    f.write(json.dumps(readings, default=str) + "\n")
+
+            await asyncio.sleep(interval)
+
     except KeyboardInterrupt:
         logger.info("Simulation stopped by user")
+    finally:
+        if client:
+            await client.aclose()
 
 
 def main():
-    """Entry point for sensor simulation."""
     import argparse
-    
-    parser = argparse.ArgumentParser(description="PRITHVINET IoT Sensor Simulator")
-    parser.add_argument("--output", "-o", help="Output file for JSON readings")
-    parser.add_argument("--interval", "-i", type=int, default=5, 
-                       help="Simulation interval in seconds")
-    parser.add_argument("--quiet", "-q", action="store_true", 
-                       help="Suppress console output")
+    parser = argparse.ArgumentParser(description="PRITHVINET Chhattisgarh Sensor Simulator")
+    parser.add_argument("--output", "-o", help="Output JSONL file path")
+    parser.add_argument("--interval", "-i", type=int, default=5, help="Interval between ticks (seconds)")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress console output")
+    parser.add_argument("--http-push", action="store_true", help="Enable HTTP push to ingest API")
+    parser.add_argument("--max-iterations", type=int, default=None, help="Max simulation ticks (None = infinite)")
     args = parser.parse_args()
-    
-    global SIMULATION_INTERVAL_SECONDS
-    SIMULATION_INTERVAL_SECONDS = args.interval
-    
+
     asyncio.run(run_simulation(
         output_file=args.output,
-        console_output=not args.quiet
+        console_output=not args.quiet,
+        http_push=args.http_push or ENABLE_HTTP_PUSH,
+        interval=args.interval,
+        max_iterations=args.max_iterations,
     ))
 
 

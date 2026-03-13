@@ -1,165 +1,171 @@
-"""Causal AI Policy Simulation API Endpoints (DoWhy)"""
+"""Causal AI Policy Simulation API Endpoints — wired to PolicySimulator (NumPy SEM)."""
 
 from fastapi import APIRouter, Query
-from typing import Optional, List, Dict
+from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+
+from app.models.schemas import PolicyIntervention as PolicyInterventionModel
+from app.services.causal.policy_simulator import policy_simulator
 
 router = APIRouter()
 
 
-class PolicyIntervention(BaseModel):
-    """Model for policy intervention simulation"""
-    intervention_type: str  # e.g., "traffic_reduction", "industrial_shutdown", "green_cover"
-    target_zone: str
-    magnitude: float  # Percentage change
-    confounders: Optional[Dict[str, float]] = None
-
-
-class CausalGraphRequest(BaseModel):
-    """Request model for causal graph definition"""
-    treatment: str
-    outcome: str
-    confounders: List[str]
-    instruments: Optional[List[str]] = None
-
-
 @router.get("/")
 async def get_causal_info():
-    """Get information about causal AI capabilities"""
+    """Get information about causal AI capabilities."""
     return {
-        "engine": "DoWhy + EconML",
-        "methodology": "Causal Inference with DAGs",
+        "engine": "NumPy Structural Equation Model (SEM)",
+        "methodology": "Hand-rolled causal DAG with 23 edges, city-specific baselines",
         "capabilities": [
             "Counterfactual Analysis",
-            "Policy Simulation",
-            "Confounder Identification",
-            "Treatment Effect Estimation"
+            "Policy Intervention Simulation",
+            "Bootstrap Confidence Intervals (500 samples)",
+            "Robustness Checks (placebo, random common cause, sensitivity)",
         ],
         "supported_interventions": [
-            "Industrial output reduction",
-            "Traffic volume changes",
-            "Green cover modifications",
-            "Emission standard enforcement"
+            "industry_emission_cap",
+            "traffic_restriction",
+            "green_belt",
+            "coal_plant_shutdown",
+            "vehicle_emission_standard",
+            "dust_suppression",
         ],
-        "framework_steps": ["Model", "Identify", "Estimate", "Refute"]
+        "supported_cities": [
+            "Raipur",
+            "Bhilai",
+            "Korba",
+            "Bilaspur",
+            "Durg",
+            "Raigarh",
+        ],
     }
 
 
 @router.post("/simulate")
-async def simulate_policy_intervention(intervention: PolicyIntervention):
-    """Simulate the causal impact of a policy intervention using DoWhy"""
+async def simulate_policy_intervention(intervention: PolicyInterventionModel):
+    """Simulate the causal impact of a policy intervention using NumPy SEM."""
+    result = policy_simulator.simulate(intervention)
+    # Convert to JSON-safe dict
     return {
-        "simulation_id": "sim_001",
-        "intervention": intervention.dict(),
-        "counterfactual_analysis": {
-            "baseline_pm25": 85.2,
-            "predicted_pm25_with_intervention": 72.1,
-            "absolute_reduction": 13.1,
-            "percentage_reduction": 15.4,
-            "confidence_interval": {
-                "lower": 10.2,
-                "upper": 16.0
+        "intervention": result.intervention.model_dump(),
+        "effects": {
+            k: {
+                "baseline_value": round(v.baseline_value, 2),
+                "counterfactual_value": round(v.counterfactual_value, 2),
+                "absolute_effect": round(v.absolute_effect, 2),
+                "relative_effect_pct": round(v.relative_effect_pct, 1),
+                "confidence_interval": (
+                    round(v.confidence_interval[0], 2),
+                    round(v.confidence_interval[1], 2),
+                ),
+                "p_value": round(v.p_value, 4),
             }
+            for k, v in result.effects.items()
         },
-        "causal_model": {
-            "treatment": f"{intervention.intervention_type}_{intervention.magnitude}%",
-            "outcome": "PM2.5 concentration",
-            "confounders_controlled": ["temperature", "humidity", "wind_speed", "pressure"],
-            "estimation_method": "inverse_propensity_weighting"
+        "dag_edges": result.dag_edges,
+        "robustness_checks": {
+            k: round(v, 4) for k, v in result.robustness_checks.items()
         },
-        "refutation_tests": {
-            "placebo_treatment": {"p_value": 0.82, "status": "passed"},
-            "random_common_cause": {"p_value": 0.75, "status": "passed"},
-            "data_subset": {"p_value": 0.88, "status": "passed"}
-        },
-        "generated_at": datetime.utcnow().isoformat()
+        "explanation": result.explanation,
     }
 
 
 @router.post("/what-if")
 async def what_if_analysis(
-    zone_id: str,
-    parameter: str = Query("PM2.5", description="Parameter to analyze"),
-    scenarios: List[Dict] = None
+    city: str = Query("Raipur", description="City to analyze"),
+    target_parameter: str = Query("PM2.5", description="Target parameter"),
 ):
-    """Run multiple what-if scenarios for policy comparison"""
+    """Run multiple what-if scenarios for a city and compare outcomes."""
+    scenarios = [
+        {
+            "type": "industry_emission_cap",
+            "reduction": 20,
+            "desc": "20% industrial emission cap",
+        },
+        {
+            "type": "traffic_restriction",
+            "reduction": 30,
+            "desc": "30% traffic restriction",
+        },
+        {"type": "green_belt", "reduction": 10, "desc": "10% green belt expansion"},
+        {
+            "type": "coal_plant_shutdown",
+            "reduction": 50,
+            "desc": "50% coal plant capacity reduction",
+        },
+        {
+            "type": "dust_suppression",
+            "reduction": 25,
+            "desc": "25% dust suppression measures",
+        },
+    ]
+
+    results = []
+    for sc in scenarios:
+        intervention = PolicyInterventionModel(
+            intervention_type=sc["type"],
+            city=city,
+            target_parameter=target_parameter,
+            reduction_pct=sc["reduction"],
+            description=sc["desc"],
+        )
+        sim = policy_simulator.simulate(intervention)
+        target_effect = sim.effects.get(target_parameter)
+        if target_effect:
+            results.append(
+                {
+                    "scenario": sc["desc"],
+                    "intervention_type": sc["type"],
+                    "reduction_pct_applied": sc["reduction"],
+                    "baseline_value": round(target_effect.baseline_value, 2),
+                    "counterfactual_value": round(
+                        target_effect.counterfactual_value, 2
+                    ),
+                    "absolute_change": round(target_effect.absolute_effect, 2),
+                    "relative_change_pct": round(target_effect.relative_effect_pct, 1),
+                    "confidence_interval": (
+                        round(target_effect.confidence_interval[0], 2),
+                        round(target_effect.confidence_interval[1], 2),
+                    ),
+                    "p_value": round(target_effect.p_value, 4),
+                }
+            )
+
+    # Sort by absolute effect (most impactful first)
+    results.sort(key=lambda r: r.get("absolute_change", 0))
+
+    optimal = results[0] if results else None
+
     return {
-        "zone_id": zone_id,
-        "parameter": parameter,
-        "scenarios": [
-            {
-                "name": "Traffic reduction 15%",
-                "expected_change": -8.5,
-                "confidence": 0.87
-            },
-            {
-                "name": "Industrial shutdown weekends",
-                "expected_change": -12.3,
-                "confidence": 0.82
-            },
-            {
-                "name": "Green cover +10%",
-                "expected_change": -3.2,
-                "confidence": 0.91
-            }
-        ],
+        "city": city,
+        "target_parameter": target_parameter,
+        "scenarios": results,
         "recommendation": {
-            "optimal_intervention": "Industrial shutdown weekends",
-            "rationale": "Highest impact with acceptable confidence level"
-        }
+            "optimal_intervention": optimal["scenario"] if optimal else "None",
+            "expected_change": optimal["absolute_change"] if optimal else 0,
+            "rationale": f"Largest reduction in {target_parameter} with statistical significance"
+            if optimal
+            else "No valid scenarios",
+        },
     }
 
 
 @router.get("/dag")
-async def get_causal_dag(parameter: str = Query("PM2.5", description="Target parameter")):
-    """Get the Directed Acyclic Graph for causal relationships"""
+async def get_causal_dag():
+    """Get the Directed Acyclic Graph for the causal model."""
+    dag = policy_simulator.get_dag()
     return {
-        "parameter": parameter,
-        "dag": {
-            "nodes": [
-                {"id": "industrial_output", "type": "treatment"},
-                {"id": "traffic_volume", "type": "treatment"},
-                {"id": "temperature", "type": "confounder"},
-                {"id": "humidity", "type": "confounder"},
-                {"id": "wind_speed", "type": "confounder"},
-                {"id": "pressure", "type": "confounder"},
-                {"id": "pm25", "type": "outcome"}
-            ],
-            "edges": [
-                {"from": "industrial_output", "to": "pm25"},
-                {"from": "traffic_volume", "to": "pm25"},
-                {"from": "temperature", "to": "pm25"},
-                {"from": "temperature", "to": "industrial_output"},
-                {"from": "humidity", "to": "pm25"},
-                {"from": "wind_speed", "to": "pm25"},
-                {"from": "pressure", "to": "pm25"},
-                {"from": "pressure", "to": "temperature"}
-            ]
-        },
-        "assumptions": [
-            "No unobserved confounders between treatment and outcome",
-            "Stable Unit Treatment Value Assumption (SUTVA)"
-        ]
-    }
-
-
-@router.post("/treatment-effect")
-async def estimate_treatment_effect(request: CausalGraphRequest):
-    """Estimate the causal treatment effect using DoWhy methodology"""
-    return {
-        "treatment": request.treatment,
-        "outcome": request.outcome,
-        "confounders": request.confounders,
-        "effect_estimate": {
-            "ATE": -12.5,  # Average Treatment Effect
-            "ATT": -14.2,  # Average Treatment on Treated
-            "standard_error": 2.3,
-            "p_value": 0.001
-        },
-        "estimation_methods": [
-            {"method": "Propensity Score Matching", "estimate": -12.8},
-            {"method": "Inverse Propensity Weighting", "estimate": -12.3},
-            {"method": "Doubly Robust", "estimate": -12.5}
-        ]
+        "nodes": dag["nodes"],
+        "edges": [
+            {
+                "from": e["source"],
+                "to": e["target"],
+                "coefficient": e["coefficient"],
+                "description": e["description"],
+            }
+            for e in dag["edges"]
+        ],
+        "total_nodes": len(dag["nodes"]),
+        "total_edges": len(dag["edges"]),
+        "description": "23-edge causal DAG: industrial_emissions, traffic_volume, meteorology, green_belt -> pollutants",
     }

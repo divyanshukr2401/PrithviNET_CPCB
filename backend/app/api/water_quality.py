@@ -1,83 +1,178 @@
-"""Water Quality Monitoring API Endpoints"""
+"""Water Quality Monitoring API Endpoints — wired to ClickHouse + PostGIS."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from datetime import datetime
+
+from app.services.ingestion.clickhouse_writer import ch_writer
+from app.services.ingestion.postgres_writer import pg_writer
 
 router = APIRouter()
 
 
 @router.get("/")
 async def get_water_quality_summary():
-    """Get overall water quality summary"""
+    """Get overall water quality summary for CG rivers."""
+    stations = await pg_writer.get_water_stations()
+    try:
+        client = ch_writer._get_client()
+        result = client.query("""
+            SELECT count() AS total_readings,
+                   countDistinct(station_id) AS active_stations,
+                   max(timestamp) AS latest_ts
+            FROM water_quality_raw
+            WHERE timestamp >= now() - INTERVAL 2 HOUR
+        """)
+        row = dict(zip(result.column_names, result.result_rows[0])) if result.result_rows else {}
+    except Exception:
+        row = {}
+
     return {
         "summary": "Water quality monitoring active",
-        "surface_stations": 500,
-        "groundwater_stations": 200,
-        "parameters": ["pH", "DO", "BOD", "COD", "Turbidity", "TDS", "Nitrates", "Phosphates"],
-        "last_updated": datetime.utcnow().isoformat()
+        "total_stations": len(stations),
+        "active_stations_2h": row.get("active_stations", 0),
+        "parameters": ["pH", "DO", "BOD", "COD", "TSS", "Turbidity", "Conductivity", "Temperature", "Nitrates", "Phosphates"],
+        "rivers": ["Kharun", "Sheonath", "Hasdeo", "Arpa", "Kelo"],
+        "last_updated": datetime.utcnow().isoformat(),
     }
 
 
-@router.get("/surface")
-async def get_surface_water_quality(
-    river: Optional[str] = Query(None, description="Filter by river name"),
-    state: Optional[str] = Query(None, description="Filter by state")
+@router.get("/stations")
+async def get_water_stations(
+    district: Optional[str] = Query(None, description="Filter by district/city"),
 ):
-    """Get surface water quality data from rivers and lakes"""
+    """Get list of water quality monitoring stations."""
+    stations = await pg_writer.get_water_stations(district=district)
     return {
-        "type": "surface",
-        "sources": [],
-        "filters": {"river": river, "state": state}
-    }
-
-
-@router.get("/groundwater")
-async def get_groundwater_quality(
-    state: Optional[str] = Query(None, description="Filter by state"),
-    district: Optional[str] = Query(None, description="Filter by district")
-):
-    """Get groundwater quality data from CGWB In-GRES system"""
-    return {
-        "type": "groundwater",
-        "assessment_units": [],
-        "categories": ["Safe", "Semi-critical", "Critical", "Over-exploited"],
-        "filters": {"state": state, "district": district}
+        "stations": stations,
+        "total": len(stations),
+        "filters": {"district": district},
     }
 
 
 @router.get("/stations/{station_id}")
 async def get_water_station_data(station_id: str):
-    """Get water quality data for a specific monitoring station"""
+    """Get water quality data for a specific monitoring station."""
+    readings = await ch_writer.query_recent_readings(
+        "water_quality_raw", station_id, id_column="station_id", hours=6,
+    )
+    if not readings:
+        raise HTTPException(status_code=404, detail=f"No recent data for station {station_id}")
+
+    # Group by parameter, take latest
+    latest: dict[str, dict] = {}
+    for r in readings:
+        p = r.get("parameter", "")
+        if p not in latest or r["timestamp"] > latest[p]["timestamp"]:
+            latest[p] = r
+
+    # Average WQI
+    wqi_values = [v.get("wqi", 50) for v in latest.values()]
+    avg_wqi = round(sum(wqi_values) / max(1, len(wqi_values)), 1)
+
+    wqi_category = "Excellent" if avg_wqi >= 80 else "Good" if avg_wqi >= 60 else "Fair" if avg_wqi >= 40 else "Poor" if avg_wqi >= 20 else "Very Poor"
+
+    sample = next(iter(latest.values()), {})
+
     return {
         "station_id": station_id,
-        "type": "surface",
-        "location": {"lat": 25.5941, "lon": 85.1376},
-        "parameters": {
-            "pH": {"value": 7.2, "unit": "-", "status": "Normal"},
-            "DO": {"value": 6.5, "unit": "mg/L", "status": "Good"},
-            "BOD": {"value": 3.2, "unit": "mg/L", "status": "Acceptable"},
-            "Turbidity": {"value": 15.3, "unit": "NTU", "status": "Normal"}
+        "river_name": sample.get("river_name", ""),
+        "city": sample.get("city", ""),
+        "location": {
+            "lat": sample.get("latitude", 0),
+            "lon": sample.get("longitude", 0),
         },
-        "wqi": {"value": 72, "category": "Good"},
-        "timestamp": datetime.utcnow().isoformat()
+        "parameters": {
+            p: {
+                "value": round(v.get("value", 0), 3),
+                "unit": v.get("unit", ""),
+                "wqi": round(v.get("wqi", 50), 1),
+            }
+            for p, v in latest.items()
+        },
+        "wqi": {"value": avg_wqi, "category": wqi_category},
+        "timestamp": str(sample.get("timestamp", "")),
     }
+
+
+@router.get("/rivers")
+async def get_river_data(
+    river: Optional[str] = Query(None, description="River name"),
+    hours: int = Query(6, ge=1, le=48),
+):
+    """Get water quality data grouped by river."""
+    try:
+        client = ch_writer._get_client()
+        river_filter = f"AND river_name = '{river}'" if river else ""
+        result = client.query(f"""
+            SELECT river_name, parameter,
+                   avg(value) AS avg_value,
+                   min(value) AS min_value,
+                   max(value) AS max_value,
+                   count() AS readings
+            FROM water_quality_raw
+            WHERE timestamp >= now() - INTERVAL {hours} HOUR
+              AND river_name != ''
+              {river_filter}
+            GROUP BY river_name, parameter
+            ORDER BY river_name, parameter
+        """)
+        columns = result.column_names
+        rows = [dict(zip(columns, row)) for row in result.result_rows]
+    except Exception:
+        rows = []
+
+    # Group by river
+    rivers: dict[str, list] = {}
+    for r in rows:
+        rn = r.get("river_name", "Unknown")
+        rivers.setdefault(rn, []).append({
+            "parameter": r.get("parameter", ""),
+            "avg_value": round(r.get("avg_value", 0), 2),
+            "min_value": round(r.get("min_value", 0), 2),
+            "max_value": round(r.get("max_value", 0), 2),
+            "readings": r.get("readings", 0),
+        })
+
+    return {"rivers": rivers, "filter": {"river": river, "hours": hours}}
 
 
 @router.get("/wqi")
 async def get_water_quality_index(
-    lat: float,
-    lon: float,
-    radius_km: float = Query(10, description="Search radius in km")
+    city: Optional[str] = Query(None, description="City filter"),
+    hours: int = Query(6, ge=1, le=48),
 ):
-    """Calculate Water Quality Index for a geographic area"""
+    """Get Water Quality Index summary for CG stations."""
+    try:
+        client = ch_writer._get_client()
+        city_filter = f"AND city = '{city}'" if city else ""
+        result = client.query(f"""
+            SELECT station_id, city, river_name,
+                   avg(wqi) AS avg_wqi,
+                   min(wqi) AS min_wqi,
+                   count() AS readings
+            FROM water_quality_raw
+            WHERE timestamp >= now() - INTERVAL {hours} HOUR
+              {city_filter}
+            GROUP BY station_id, city, river_name
+            ORDER BY avg_wqi ASC
+        """)
+        columns = result.column_names
+        rows = [dict(zip(columns, row)) for row in result.result_rows]
+    except Exception:
+        rows = []
+
     return {
-        "location": {"lat": lat, "lon": lon, "radius_km": radius_km},
-        "wqi": 72,
-        "category": "Good",
-        "parameters_summary": {
-            "critical": [],
-            "warning": ["BOD"],
-            "normal": ["pH", "DO", "Turbidity"]
-        }
+        "stations": [
+            {
+                "station_id": r.get("station_id", ""),
+                "city": r.get("city", ""),
+                "river_name": r.get("river_name", ""),
+                "avg_wqi": round(r.get("avg_wqi", 0), 1),
+                "min_wqi": round(r.get("min_wqi", 0), 1),
+                "readings": r.get("readings", 0),
+            }
+            for r in rows
+        ],
+        "filter": {"city": city, "hours": hours},
     }

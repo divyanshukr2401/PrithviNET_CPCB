@@ -12,6 +12,7 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
       - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+      - ./clickhouse/init_tables.sql:/docker-entrypoint-initdb.d/init_tables.sql:ro
     environment:
       - CLICKHOUSE_DB=prithvinet
       - CLICKHOUSE_USER=admin
@@ -32,7 +33,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./postgres/seed_cg_stations.sql:/docker-entrypoint-initdb.d/02_seed_cg.sql:ro
+      - ./postgres/seed_india_air_stations.sql:/docker-entrypoint-initdb.d/03_seed_india.sql:ro
     environment:
       - POSTGRES_DB=prithvinet_geo
       - POSTGRES_USER=admin
