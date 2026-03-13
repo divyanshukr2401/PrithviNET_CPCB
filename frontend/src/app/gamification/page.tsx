@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getLeaderboard, submitReport } from "@/lib/api";
 import type { LeaderboardEntry } from "@/lib/types";
-import { Trophy, Medal, Star, Send, Users, RefreshCw } from "lucide-react";
+import { Trophy, Medal, Star, Send, Users, RefreshCw, MapPin } from "lucide-react";
 
 // ── Categories — map to backend CitizenReport.report_type ──
 const REPORT_CATEGORIES = [
@@ -11,6 +11,13 @@ const REPORT_CATEGORIES = [
   { value: "water_pollution", label: "Water Pollution" },
   { value: "noise_violation", label: "Noise Violation" },
   { value: "illegal_dumping", label: "Illegal Dumping" },
+] as const;
+
+const SEVERITY_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "critical", label: "Critical" },
 ] as const;
 
 // ── Level names (same as backend LEVELS) ──────────────────
@@ -48,8 +55,10 @@ export default function GamificationPage() {
   const [userId, setUserId] = useState("");
   const [reportType, setReportType] = useState<string>(REPORT_CATEGORIES[0].value);
   const [description, setDescription] = useState("");
+  const [severity, setSeverity] = useState("medium");
   const [latitude, setLatitude] = useState(21.25);
   const [longitude, setLongitude] = useState(81.63);
+  const [geoLoading, setGeoLoading] = useState(false);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -103,8 +112,12 @@ export default function GamificationPage() {
         description: description.trim(),
         latitude,
         longitude,
+        severity,
       });
       setSubmitResult(result);
+      // Clear form after successful submission
+      setDescription("");
+      setSeverity("medium");
       // Refresh leaderboard after successful submission
       try {
         const lbData = await getLeaderboard();
@@ -207,39 +220,94 @@ export default function GamificationPage() {
               />
             </div>
 
-            {/* Lat / Lng */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="latitude"
-                  className="block text-xs font-medium text-muted-foreground mb-1.5"
-                >
-                  Latitude
+            {/* Severity */}
+            <div>
+              <label
+                htmlFor="severity"
+                className="block text-xs font-medium text-muted-foreground mb-1.5"
+              >
+                Severity
+              </label>
+              <select
+                id="severity"
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value)}
+                className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {SEVERITY_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Higher severity = more eco-points awarded
+              </p>
+            </div>
+
+            {/* Lat / Lng with Geolocation */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Location
                 </label>
-                <input
-                  id="latitude"
-                  type="number"
-                  step="any"
-                  value={latitude}
-                  onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
-                  className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
-                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!navigator.geolocation) return;
+                    setGeoLoading(true);
+                    navigator.geolocation.getCurrentPosition(
+                      (pos) => {
+                        setLatitude(parseFloat(pos.coords.latitude.toFixed(6)));
+                        setLongitude(parseFloat(pos.coords.longitude.toFixed(6)));
+                        setGeoLoading(false);
+                      },
+                      () => setGeoLoading(false),
+                      { enableHighAccuracy: true, timeout: 10000 }
+                    );
+                  }}
+                  disabled={geoLoading}
+                  className="inline-flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors font-medium"
+                >
+                  {geoLoading ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <MapPin className="w-3 h-3" />
+                  )}
+                  {geoLoading ? "Detecting..." : "Use my location"}
+                </button>
               </div>
-              <div>
-                <label
-                  htmlFor="longitude"
-                  className="block text-xs font-medium text-muted-foreground mb-1.5"
-                >
-                  Longitude
-                </label>
-                <input
-                  id="longitude"
-                  type="number"
-                  step="any"
-                  value={longitude}
-                  onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
-                  className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="latitude"
+                    className="block text-[10px] text-muted-foreground mb-1"
+                  >
+                    Latitude
+                  </label>
+                  <input
+                    id="latitude"
+                    type="number"
+                    step="any"
+                    value={latitude}
+                    onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
+                    className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="longitude"
+                    className="block text-[10px] text-muted-foreground mb-1"
+                  >
+                    Longitude
+                  </label>
+                  <input
+                    id="longitude"
+                    type="number"
+                    step="any"
+                    value={longitude}
+                    onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
+                    className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
+                  />
+                </div>
               </div>
             </div>
 

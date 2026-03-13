@@ -11,6 +11,7 @@ import MarkerClusterGroup from "react-leaflet-cluster";
 import L from "leaflet";
 import "leaflet.markercluster";
 import type { AirReading } from "@/lib/types";
+import { getAQIColor as canonicalAQIColor } from "@/lib/types";
 
 interface LeafletMapWrapperProps {
   aqiReadings: AirReading[];
@@ -38,21 +39,12 @@ function getClusterAverageAQI(cluster: L.MarkerCluster): number {
   return count > 0 ? Math.round(total / count) : 0;
 }
 
-function getAQIColorForValue(aqi: number): string {
-  if (aqi <= 50) return "#22c55e";
-  if (aqi <= 100) return "#eab308";
-  if (aqi <= 200) return "#f97316";
-  if (aqi <= 300) return "#ef4444";
-  if (aqi <= 400) return "#a855f7";
-  return "#991b1b";
-}
-
 /**
  * Custom cluster icon that shows count + average AQI color
  */
 function createClusterIcon(cluster: L.MarkerCluster): L.DivIcon {
   const avgAqi = getClusterAverageAQI(cluster);
-  const color = getAQIColorForValue(avgAqi);
+  const color = canonicalAQIColor(avgAqi);
   const count = cluster.getChildCount();
   const size = count < 10 ? 36 : count < 50 ? 44 : 52;
 

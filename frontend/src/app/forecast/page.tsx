@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { getForecast } from "@/lib/api";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { getForecast, getStations } from "@/lib/api";
 import type { ForecastResponse, ForecastPoint } from "@/lib/types";
 import {
   ComposedChart,
@@ -15,22 +16,15 @@ import {
 } from "recharts";
 import { Activity, RefreshCw } from "lucide-react";
 
-const CG_STATIONS = [
-  { id: "site_5503", city: "Bilaspur" },
-  { id: "site_5536", city: "Bhilai" },
-  { id: "site_5652", city: "Raipur" },
-  { id: "site_5653", city: "Raipur" },
-  { id: "site_5654", city: "Raipur" },
-  { id: "site_5655", city: "Raipur" },
-  { id: "site_5656", city: "Korba" },
-  { id: "site_5657", city: "Korba" },
-  { id: "site_5659", city: "Bhilai" },
-  { id: "site_5660", city: "Bhilai" },
-  { id: "site_5689", city: "Chhal" },
-  { id: "site_5690", city: "Kunjemura" },
-  { id: "site_5691", city: "Milupara" },
-  { id: "site_5692", city: "Tumidih" },
-];
+const PARAMETERS = ["AQI", "PM2.5", "PM10", "NO2", "SO2", "CO", "O3", "NH3", "Pb"];
+const HORIZONS = [6, 12, 24, 48, 72];
+
+interface StationOption {
+  id: string;
+  label: string;
+  city: string;
+  state: string;
+}
 
 function formatTimestamp(ts: string): string {
   const d = new Date(ts);
@@ -60,17 +54,66 @@ interface ChartDataPoint extends ForecastPoint {
   label: string;
 }
 
-export default function ForecastPage() {
-  const [selectedStation, setSelectedStation] = useState(CG_STATIONS[0].id);
+function ForecastPageInner() {
+  const searchParams = useSearchParams();
+  const initialStation = searchParams.get("station") || "";
+
+  // Station list (fetched dynamically)
+  const [allStations, setAllStations] = useState<StationOption[]>([]);
+  const [stationsLoading, setStationsLoading] = useState(true);
+  const [stationSearch, setStationSearch] = useState("");
+
+  // Forecast config
+  const [selectedStation, setSelectedStation] = useState(initialStation);
+  const [selectedParam, setSelectedParam] = useState("AQI");
+  const [selectedHorizon, setSelectedHorizon] = useState(24);
+
+  // Forecast results
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forecast, setForecast] = useState<ForecastResponse | null>(null);
 
+  // Fetch stations on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await getStations();
+        if (!cancelled) {
+          const opts: StationOption[] = data.stations.map((s) => ({
+            id: s.station_id,
+            label: `${s.station_name} (${s.city}, ${s.state})`,
+            city: s.city,
+            state: s.state,
+          }));
+          setAllStations(opts);
+          // Use URL param station if valid, otherwise first station
+          if (initialStation && opts.some((o) => o.id === initialStation)) {
+            setSelectedStation(initialStation);
+          } else if (opts.length > 0 && !selectedStation) {
+            setSelectedStation(opts[0].id);
+          }
+        }
+      } catch {
+        // Fallback: no stations
+      } finally {
+        if (!cancelled) setStationsLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleGenerate = async () => {
+    if (!selectedStation) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await getForecast({ station_id: selectedStation });
+      const data = await getForecast({
+        station_id: selectedStation,
+        parameter: selectedParam,
+        horizon_hours: selectedHorizon,
+      });
       setForecast(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate forecast");
@@ -86,8 +129,16 @@ export default function ForecastPage() {
       label: formatTimestamp(pt.timestamp),
     })) ?? [];
 
+  // Filter stations by search query
+  const filteredStations = stationSearch.trim()
+    ? allStations.filter((s) =>
+        s.label.toLowerCase().includes(stationSearch.trim().toLowerCase()) ||
+        s.id.toLowerCase().includes(stationSearch.trim().toLowerCase())
+      )
+    : allStations;
+
   const stationLabel =
-    CG_STATIONS.find((s) => s.id === selectedStation)?.city ?? selectedStation;
+    allStations.find((s) => s.id === selectedStation)?.label ?? selectedStation;
 
   return (
     <div className="space-y-6">
@@ -95,10 +146,10 @@ export default function ForecastPage() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Activity className="w-6 h-6 text-primary" />
-          AQI Forecast
+          Probabilistic Forecast
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Generate air quality index predictions for Chhattisgarh monitoring stations
+          Generate air quality predictions for any CPCB station across India using Nixtla TimeGPT with Holt exponential smoothing fallback.
         </p>
       </div>
 
@@ -107,31 +158,86 @@ export default function ForecastPage() {
         <h2 className="text-sm font-medium text-muted-foreground mb-4">
           Forecast Configuration
         </h2>
-        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
-          <div className="flex-1 w-full sm:w-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Station selector with search */}
+          <div className="sm:col-span-2">
             <label
-              htmlFor="station-select"
+              htmlFor="station-search"
               className="block text-xs font-medium text-muted-foreground mb-1.5"
             >
-              Station
+              Station ({allStations.length} available)
             </label>
+            <input
+              id="station-search"
+              type="text"
+              value={stationSearch}
+              onChange={(e) => setStationSearch(e.target.value)}
+              placeholder="Search stations by name, city, or ID..."
+              className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground/50 mb-2"
+            />
             <select
               id="station-select"
               value={selectedStation}
               onChange={(e) => setSelectedStation(e.target.value)}
+              disabled={stationsLoading}
               className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              size={1}
             >
-              {CG_STATIONS.map((s) => (
+              {stationsLoading && <option>Loading stations...</option>}
+              {filteredStations.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.id} &mdash; {s.city}
+                  {s.id} &mdash; {s.city}, {s.state}
                 </option>
               ))}
             </select>
           </div>
 
+          {/* Parameter selector */}
+          <div>
+            <label
+              htmlFor="param-select"
+              className="block text-xs font-medium text-muted-foreground mb-1.5"
+            >
+              Parameter
+            </label>
+            <select
+              id="param-select"
+              value={selectedParam}
+              onChange={(e) => setSelectedParam(e.target.value)}
+              className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              {PARAMETERS.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Horizon selector */}
+          <div>
+            <label
+              htmlFor="horizon-select"
+              className="block text-xs font-medium text-muted-foreground mb-1.5"
+            >
+              Horizon
+            </label>
+            <select
+              id="horizon-select"
+              value={selectedHorizon}
+              onChange={(e) => setSelectedHorizon(Number(e.target.value))}
+              className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              {HORIZONS.map((h) => (
+                <option key={h} value={h}>{h}h</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Generate button */}
+        <div className="mt-4">
           <button
             onClick={handleGenerate}
-            disabled={loading}
+            disabled={loading || !selectedStation}
             className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
@@ -157,7 +263,7 @@ export default function ForecastPage() {
         <div className="bg-card rounded-lg border border-border p-12 text-center">
           <Activity className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-muted-foreground text-sm">
-            Select a station and click <span className="text-foreground font-medium">Generate Forecast</span> to view AQI predictions.
+            Select a station, parameter, and horizon, then click <span className="text-foreground font-medium">Generate Forecast</span> to view predictions with confidence intervals.
           </p>
         </div>
       )}
@@ -167,7 +273,7 @@ export default function ForecastPage() {
         <div className="bg-card rounded-lg border border-border p-12 text-center">
           <RefreshCw className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
           <p className="text-muted-foreground text-sm">
-            Generating forecast for {stationLabel}...
+            Generating {selectedParam} forecast for {selectedHorizon}h...
           </p>
         </div>
       )}
@@ -239,8 +345,8 @@ export default function ForecastPage() {
                     formatter={(value: unknown, name: unknown) => {
                       const labels: Record<string, string> = {
                         predicted: "Predicted",
-                        upper_bound: "Upper Bound",
-                        lower_bound: "Lower Bound",
+                        upper_bound: "Upper Bound (90%)",
+                        lower_bound: "Lower Bound (90%)",
                       };
                       const key = String(name ?? "");
                       return [Number(value).toFixed(1), labels[key] ?? key];
@@ -311,7 +417,7 @@ export default function ForecastPage() {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-5 h-0.5 bg-[#3b82f6]/40 rounded-full inline-block border-t border-dashed border-[#3b82f6]" />
-                Confidence Bounds
+                90% Confidence Bounds
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-4 h-3 bg-[#3b82f6]/10 rounded-sm inline-block" />
@@ -442,5 +548,18 @@ export default function ForecastPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ForecastPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center py-24 text-muted-foreground text-sm gap-2">
+        <RefreshCw className="w-4 h-4 animate-spin" />
+        Loading forecast...
+      </div>
+    }>
+      <ForecastPageInner />
+    </Suspense>
   );
 }

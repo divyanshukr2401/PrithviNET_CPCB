@@ -63,14 +63,19 @@ export async function getStations(): Promise<{
 export async function getHistoricalAir(params: {
   station_id: string;
   parameter?: string;
-  hours?: number;
+  days?: number;
 }): Promise<{
+  station_id: string;
+  parameter: string;
+  days: number;
+  data_points: number;
   data: Array<{ timestamp: string; value: number; parameter: string }>;
+  statistics: Record<string, number>;
 }> {
   const sp = new URLSearchParams();
   sp.set("station_id", params.station_id);
   if (params.parameter) sp.set("parameter", params.parameter);
-  if (params.hours) sp.set("hours", String(params.hours));
+  if (params.days) sp.set("days", String(params.days));
   return fetchAPI(`/api/v1/air/historical?${sp.toString()}`);
 }
 
@@ -183,6 +188,28 @@ export async function getComplianceSummary(): Promise<{
   last_updated: string;
 }> {
   return fetchAPI("/api/v1/compliance/");
+}
+
+export async function getExceedances(params?: {
+  hours?: number;
+}): Promise<{
+  exceedances: Array<{
+    factory_id: string;
+    parameter: string;
+    city: string;
+    industry_type: string;
+    value: number;
+    limit: number;
+    exceedance_pct: number;
+    timestamp: string;
+    anomaly_type: string;
+    quality_flag: string;
+  }>;
+}> {
+  const sp = new URLSearchParams();
+  if (params?.hours) sp.set("hours", String(params.hours));
+  const qs = sp.toString();
+  return fetchAPI(`/api/v1/compliance/exceedances${qs ? `?${qs}` : ""}`);
 }
 
 // ── Gamification ───────────────────────────────────────────

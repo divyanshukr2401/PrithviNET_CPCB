@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { getStations } from "@/lib/api";
-import { MapPin, Search, Filter, RefreshCw } from "lucide-react";
+import { MapPin, Search, Filter, RefreshCw, ArrowRight } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────
 interface StationItem {
@@ -16,6 +17,7 @@ interface StationItem {
 
 // ── Page Component ────────────────────────────────────────
 export default function StationsPage() {
+  const router = useRouter();
   const [stations, setStations] = useState<StationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -237,13 +239,17 @@ export default function StationsPage() {
                   <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">
                     Longitude
                   </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">
+                    Forecast
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {filteredStations.map((station) => (
                   <tr
                     key={station.station_id}
-                    className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+                    onClick={() => router.push(`/forecast?station=${station.station_id}`)}
+                    className="border-b border-border/50 hover:bg-muted/20 transition-colors cursor-pointer group"
                   >
                     <td className="px-4 py-3">
                       <span className="font-mono text-xs text-primary">
@@ -271,6 +277,9 @@ export default function StationsPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">
                       {station.longitude.toFixed(4)}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <ArrowRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-primary transition-colors mx-auto" />
                     </td>
                   </tr>
                 ))}

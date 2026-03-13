@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getFactories, diagnoseFactory } from "@/lib/api";
+import { getFactories, diagnoseFactory, getComplianceSummary, getExceedances } from "@/lib/api";
 import type { AutoHealerDiagnosis, SensorDiagnosis, Factory } from "@/lib/types";
 import {
   Shield,
@@ -11,6 +11,9 @@ import {
   Factory as FactoryIcon,
   Wrench,
   Activity,
+  TrendingUp,
+  Gauge,
+  TriangleAlert,
 } from "lucide-react";
 
 // ── Helpers ────────────────────────────────────────────────
@@ -61,8 +64,48 @@ function formatIndicatorName(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function exceedanceColor(pct: number): string {
+  if (pct > 200) return "text-red-400";
+  if (pct > 100) return "text-orange-400";
+  if (pct > 50) return "text-yellow-400";
+  return "text-green-400";
+}
+
+// ── Exceedance type ───────────────────────────────────────
+interface Exceedance {
+  factory_id: string;
+  parameter: string;
+  city: string;
+  industry_type: string;
+  value: number;
+  limit: number;
+  exceedance_pct: number;
+  timestamp: string;
+  anomaly_type: string;
+  quality_flag: string;
+}
+
+// ── Compliance Summary type ───────────────────────────────
+interface ComplianceSummaryData {
+  total_factories: number;
+  monitored_24h: number;
+  compliant: number;
+  non_compliant: number;
+  critical: number;
+  overall_compliance_pct: number;
+  last_updated: string;
+}
+
 // ── Page Component ─────────────────────────────────────────
 export default function CompliancePage() {
+  // Compliance summary
+  const [summary, setSummary] = useState<ComplianceSummaryData | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+
+  // Exceedances
+  const [exceedances, setExceedances] = useState<Exceedance[]>([]);
+  const [excLoading, setExcLoading] = useState(true);
+
   // Factory list
   const [factories, setFactories] = useState<Factory[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(true);
@@ -76,10 +119,35 @@ export default function CompliancePage() {
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagError, setDiagError] = useState<string | null>(null);
 
-  // ── Load factories on mount ──────────────────────────────
+  // ── Load summary + exceedances + factories on mount ─────
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+
+    async function loadSummary() {
+      setSummaryLoading(true);
+      try {
+        const data = await getComplianceSummary();
+        if (!cancelled) setSummary(data);
+      } catch {
+        // silently fail — summary is nice-to-have
+      } finally {
+        if (!cancelled) setSummaryLoading(false);
+      }
+    }
+
+    async function loadExceedances() {
+      setExcLoading(true);
+      try {
+        const data = await getExceedances({ hours: 72 });
+        if (!cancelled) setExceedances(data.exceedances);
+      } catch {
+        // silently fail
+      } finally {
+        if (!cancelled) setExcLoading(false);
+      }
+    }
+
+    async function loadFactories() {
       setFactoriesLoading(true);
       setFactoriesError(null);
       try {
@@ -100,10 +168,11 @@ export default function CompliancePage() {
         if (!cancelled) setFactoriesLoading(false);
       }
     }
-    load();
-    return () => {
-      cancelled = true;
-    };
+
+    loadSummary();
+    loadExceedances();
+    loadFactories();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Diagnose handler ─────────────────────────────────────
@@ -139,20 +208,165 @@ export default function CompliancePage() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Shield className="w-6 h-6 text-primary" />
-          OCEMS Auto-Healer
+          OCEMS Compliance & Auto-Healer
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Sensor fault detection vs real pollution analysis using 4-indicator weighted scoring.
-          Diagnose factory OCEMS health and get actionable recommendations.
+          Monitor factory compliance, view recent exceedances, and diagnose sensor health
+          using 4-indicator weighted scoring.
         </p>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════
+          Compliance Summary Dashboard
+          ═══════════════════════════════════════════════════════ */}
+      {summaryLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="bg-card rounded-lg border border-border p-4 animate-pulse">
+              <div className="h-3 bg-muted/30 rounded w-20 mb-3" />
+              <div className="h-8 bg-muted/20 rounded w-16" />
+            </div>
+          ))}
+        </div>
+      ) : summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <FactoryIcon className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Total Factories</p>
+            </div>
+            <p className="text-2xl font-bold font-mono text-foreground">{summary.total_factories}</p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Activity className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Monitored 24h</p>
+            </div>
+            <p className="text-2xl font-bold font-mono text-foreground">{summary.monitored_24h}</p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Compliant</p>
+            </div>
+            <p className="text-2xl font-bold font-mono text-green-400">{summary.compliant}</p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Non-Compliant</p>
+            </div>
+            <p className="text-2xl font-bold font-mono text-orange-400">{summary.non_compliant}</p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <TriangleAlert className="w-3.5 h-3.5 text-red-400" />
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Critical</p>
+            </div>
+            <p className="text-2xl font-bold font-mono text-red-400">{summary.critical}</p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Gauge className="w-3.5 h-3.5 text-primary" />
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Compliance</p>
+            </div>
+            <p className={`text-2xl font-bold font-mono ${summary.overall_compliance_pct >= 80 ? "text-green-400" : summary.overall_compliance_pct >= 50 ? "text-yellow-400" : "text-red-400"}`}>
+              {summary.overall_compliance_pct.toFixed(0)}%
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          Recent Exceedances (72h)
+          ═══════════════════════════════════════════════════════ */}
+      <div className="bg-card rounded-lg border border-border p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" />
+            Recent Exceedances (Last 72 Hours)
+          </h2>
+          {!excLoading && (
+            <span className="text-xs text-muted-foreground">
+              {exceedances.length} violation{exceedances.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {excLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm py-6 justify-center">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            Loading exceedances...
+          </div>
+        ) : exceedances.length === 0 ? (
+          <div className="py-8 text-center">
+            <CheckCircle className="w-8 h-8 text-green-400/40 mx-auto mb-2" />
+            <p className="text-muted-foreground text-sm">No exceedances in the last 72 hours. All factories compliant.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Factory</th>
+                  <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Parameter</th>
+                  <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">City</th>
+                  <th className="text-right py-2.5 px-3 text-xs font-medium text-muted-foreground">Value</th>
+                  <th className="text-right py-2.5 px-3 text-xs font-medium text-muted-foreground">Limit</th>
+                  <th className="text-right py-2.5 px-3 text-xs font-medium text-muted-foreground">Exceedance</th>
+                  <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Type</th>
+                  <th className="text-left py-2.5 px-3 text-xs font-medium text-muted-foreground">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exceedances.slice(0, 20).map((exc, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <td className="py-2 px-3">
+                      <span className="font-mono text-xs text-primary">{exc.factory_id}</span>
+                    </td>
+                    <td className="py-2 px-3 font-medium text-foreground">{exc.parameter}</td>
+                    <td className="py-2 px-3 text-muted-foreground">{exc.city}</td>
+                    <td className={`py-2 px-3 text-right font-mono font-medium ${exceedanceColor(exc.exceedance_pct)}`}>
+                      {exc.value.toFixed(1)}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono text-muted-foreground">{exc.limit.toFixed(0)}</td>
+                    <td className={`py-2 px-3 text-right font-mono font-bold ${exceedanceColor(exc.exceedance_pct)}`}>
+                      +{exc.exceedance_pct.toFixed(0)}%
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        exc.quality_flag === "suspect"
+                          ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/30"
+                          : "text-red-400 bg-red-500/10 border-red-500/30"
+                      }`}>
+                        {exc.anomaly_type}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(exc.timestamp).toLocaleString("en-IN", {
+                        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {exceedances.length > 20 && (
+              <p className="text-xs text-muted-foreground text-center py-2 border-t border-border/50">
+                Showing top 20 of {exceedances.length} exceedances (sorted by severity)
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ═══════════════════════════════════════════════════════
           Factory Selector & Diagnose
           ═══════════════════════════════════════════════════════ */}
       <div className="bg-card rounded-lg border border-border p-5">
-        <h2 className="text-sm font-medium text-muted-foreground mb-4">
-          Select Factory
+        <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
+          <Wrench className="w-4 h-4" />
+          OCEMS Auto-Healer — Select Factory to Diagnose
         </h2>
 
         {/* Factories loading */}
