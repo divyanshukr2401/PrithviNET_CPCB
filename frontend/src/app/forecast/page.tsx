@@ -14,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Activity, RefreshCw } from "lucide-react";
+import { Activity, RefreshCw, AlertTriangle } from "lucide-react";
 
 const PARAMETERS = ["AQI", "PM2.5", "PM10", "NO2", "SO2", "CO", "O3", "NH3", "Pb"];
 const HORIZONS = [6, 12, 24, 48, 72];
@@ -279,9 +279,37 @@ function ForecastPageInner() {
       )}
 
       {/* Forecast Results */}
-      {forecast && !loading && (
+      {forecast && !loading && (() => {
+        const isInsufficientData =
+          forecast.model_metrics?.warning === "insufficient_data";
+
+        return (
         <div className="space-y-6">
-          {/* Chart */}
+          {/* Insufficient Data Warning */}
+          {isInsufficientData && (
+            <div className="bg-amber-50 rounded-lg border border-amber-300 p-5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-medium text-amber-800">
+                    Insufficient Historical Data
+                  </h3>
+                  <p className="text-sm text-amber-700 mt-1">
+                    Station <span className="font-semibold">{stationLabel}</span> does
+                    not have enough historical <span className="font-semibold">{forecast.parameter}</span> readings
+                    to generate a meaningful forecast. At least 24 hourly data points
+                    are required for the forecasting model to produce reliable predictions.
+                  </p>
+                  <p className="text-xs text-amber-600 mt-2">
+                    Try selecting a different station or parameter that has more data available in the system.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Chart — only render when we have real data */}
+          {!isInsufficientData && (
           <div className="bg-card rounded-lg border border-border p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -425,6 +453,7 @@ function ForecastPageInner() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Model Info + Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -499,8 +528,8 @@ function ForecastPageInner() {
             </div>
           </div>
 
-          {/* Summary Stats */}
-          {chartData.length > 0 && (
+          {/* Summary Stats — only when real data exists */}
+          {!isInsufficientData && chartData.length > 0 && (
             <div className="bg-card rounded-lg border border-border p-5">
               <h3 className="text-sm font-medium text-muted-foreground mb-3">
                 Forecast Summary
@@ -546,7 +575,8 @@ function ForecastPageInner() {
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

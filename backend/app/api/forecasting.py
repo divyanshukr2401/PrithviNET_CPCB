@@ -3,11 +3,15 @@
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from datetime import datetime
+import hashlib
+import json
+
+from loguru import logger
 
 from app.models.schemas import ForecastRequest
 from app.services.forecasting.nixtla_forecaster import forecaster
 from app.services.ingestion.clickhouse_writer import ch_writer
-from app.core.redis import cached
+from app.core.redis import cached, get_redis
 
 router = APIRouter()
 
@@ -52,13 +56,31 @@ async def get_forecasting_info():
 
 
 @router.post("/air-quality")
-@cached(ttl_seconds=600, prefix="forecast_air")
 async def forecast_air_quality(
     station_id: str,
     parameter: str = Query("PM2.5", description="Parameter to forecast"),
     horizon_hours: int = Query(24, ge=1, le=72),
 ):
     """Generate probabilistic air quality forecast with confidence intervals."""
+
+    # ── Manual cache keying (replaces broken @cached decorator) ───────
+    # The @cached decorator couldn't capture FastAPI query params in its
+    # cache key, so every station got the same cached result.  We now
+    # build the key explicitly from the actual request values.
+    cache_ttl = 600  # 10 minutes
+    key_raw = f"forecast_air:{station_id}:{parameter}:{horizon_hours}"
+    cache_key = f"prithvinet:{hashlib.sha256(key_raw.encode()).hexdigest()[:32]}"
+
+    try:
+        r = await get_redis()
+        hit = await r.get(cache_key)
+        if hit is not None:
+            logger.debug(f"Cache HIT: forecast_air_quality (key={cache_key[:20]}...)")
+            return json.loads(hit)
+    except Exception as e:
+        logger.debug(f"Cache read failed for forecast_air_quality: {e}")
+
+    # ── Cache miss — run the actual forecast ──────────────────────────
     request = ForecastRequest(
         station_id=station_id,
         parameter=parameter,
@@ -66,9 +88,20 @@ async def forecast_air_quality(
     )
     try:
         result = await forecaster.forecast(request, data_type="air")
-        return result.model_dump()
+        payload = result.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Forecast failed: {str(e)}")
+
+    # ── Write to cache (fire-and-forget) ──────────────────────────────
+    try:
+        r = await get_redis()
+        serialized = json.dumps(payload, default=str)
+        await r.setex(cache_key, cache_ttl, serialized)
+        logger.debug(f"Cache SET: forecast_air_quality (ttl={cache_ttl}s)")
+    except Exception as e:
+        logger.debug(f"Cache write failed for forecast_air_quality: {e}")
+
+    return payload
 
 
 @router.post("/water-quality")
