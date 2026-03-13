@@ -7,6 +7,7 @@ from datetime import datetime
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 from app.services.ingestion.live_simulator import live_simulator
+from app.core.redis import cached
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ def aqi_category(aqi: int) -> str:
 
 
 @router.get("/")
+@cached(ttl_seconds=60, prefix="air_summary")
 async def get_air_quality_summary(
     state: Optional[str] = Query(None, description="Filter by state"),
     city: Optional[str] = Query(None, description="Filter by city"),
@@ -130,6 +132,7 @@ async def get_station_data(station_id: str):
 
 
 @router.get("/aqi")
+@cached(ttl_seconds=60, prefix="air_aqi")
 async def get_aqi_data(
     city: Optional[str] = Query(None, description="City name"),
     state: Optional[str] = Query(None, description="State name"),
@@ -173,6 +176,7 @@ async def get_aqi_data(
 
 
 @router.get("/historical")
+@cached(ttl_seconds=300, prefix="air_historical")
 async def get_historical_data(
     station_id: str,
     parameter: str = Query("PM2.5", description="Parameter to retrieve"),

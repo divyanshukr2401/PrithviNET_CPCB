@@ -44,6 +44,9 @@ pyproj>=3.6.0
 # IoT Simulation
 faker>=22.0.0
 
+# Redis Cache
+redis[hiredis]>=5.0.0
+
 # Utilities
 python-dotenv>=1.0.0
 loguru>=0.7.0

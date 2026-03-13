@@ -20,6 +20,7 @@ from app.api import (
     gamification,
     ingest,
 )
+from app.core.redis import get_redis, close_redis
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 from app.services.ingestion.live_simulator import live_simulator
@@ -42,6 +43,13 @@ async def lifespan(app: FastAPI):
     # ClickHouse connects lazily on first query (via clickhouse-connect)
     logger.info("ClickHouse will connect lazily on first query")
 
+    # Connect to Redis (for caching)
+    try:
+        await get_redis()
+        logger.info("Redis cache connection established")
+    except Exception as e:
+        logger.warning(f"Redis connection failed (caching disabled): {e}")
+
     # Start live simulator (loads historical profiles + begins background generation)
     try:
         await live_simulator.start(
@@ -52,16 +60,19 @@ async def lifespan(app: FastAPI):
             f"generating every 5 minutes"
         )
     except Exception as e:
-        logger.warning(f"Live simulator failed to start (will retry when data is available): {e}")
+        logger.warning(
+            f"Live simulator failed to start (will retry when data is available): {e}"
+        )
 
     yield
 
     # Shutdown
     logger.info("PRITHVINET Shutting Down...")
     await live_simulator.stop()
+    await close_redis()
     await pg_writer.close()
     await ch_writer.close()
-    logger.info("All database connections closed")
+    logger.info("All connections closed (Redis, PostgreSQL, ClickHouse)")
 
 
 app = FastAPI(
@@ -101,7 +112,9 @@ app.include_router(noise.router, prefix="/api/v1/noise", tags=["Noise Monitoring
 app.include_router(forecasting.router, prefix="/api/v1/forecast", tags=["Forecasting"])
 app.include_router(causal.router, prefix="/api/v1/causal", tags=["Causal AI"])
 app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["Compliance"])
-app.include_router(gamification.router, prefix="/api/v1/gamification", tags=["Gamification"])
+app.include_router(
+    gamification.router, prefix="/api/v1/gamification", tags=["Gamification"]
+)
 
 
 @app.get("/")

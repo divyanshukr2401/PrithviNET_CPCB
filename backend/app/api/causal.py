@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.models.schemas import PolicyIntervention as PolicyInterventionModel
 from app.services.causal.policy_simulator import policy_simulator
+from app.core.redis import cached
 
 router = APIRouter()
 
@@ -42,6 +43,7 @@ async def get_causal_info():
 
 
 @router.post("/simulate")
+@cached(ttl_seconds=1800, prefix="causal_sim")
 async def simulate_policy_intervention(intervention: PolicyInterventionModel):
     """Simulate the causal impact of a policy intervention using NumPy SEM."""
     result = policy_simulator.simulate(intervention)
@@ -71,6 +73,7 @@ async def simulate_policy_intervention(intervention: PolicyInterventionModel):
 
 
 @router.post("/what-if")
+@cached(ttl_seconds=3600, prefix="causal_whatif")
 async def what_if_analysis(
     city: str = Query("Raipur", description="City to analyze"),
     target_parameter: str = Query("PM2.5", description="Target parameter"),

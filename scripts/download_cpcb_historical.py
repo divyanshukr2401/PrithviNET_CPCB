@@ -15,6 +15,7 @@ Usage:
   python scripts/download_cpcb_historical.py --daily             # daily city-level instead
   python scripts/download_cpcb_historical.py --dry-run           # just print what would be downloaded
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,6 +27,11 @@ import sys
 from pathlib import Path
 
 import httpx
+
+# Force unbuffered output for background/nohup execution
+import functools
+
+print = functools.partial(print, flush=True)
 
 # ── Paths ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,39 +48,68 @@ HEADERS = {
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
+
 def sanitize(name: str) -> str:
     """Make a string safe for use as a directory/file name."""
     return re.sub(r'[<>:"/\\|?*]', "_", name).strip().rstrip(".")
 
 
-def post_b64(client: httpx.Client, endpoint: str, payload: dict) -> dict:
-    """POST base64-encoded JSON, decode base64 JSON response."""
+def post_b64(
+    client: httpx.Client, endpoint: str, payload: dict, retries: int = 3
+) -> dict:
+    """POST base64-encoded JSON, decode base64 JSON response. Retries on failure."""
     body = base64.b64encode(json.dumps(payload).encode()).decode()
-    r = client.post(f"{BASE_URL}/{endpoint}", content=body, headers=HEADERS, timeout=30)
-    try:
-        decoded = base64.b64decode(r.text).decode("utf-8")
-        return json.loads(decoded)
-    except Exception:
-        return {"_raw": r.text[:500], "_status": r.status_code}
+    for attempt in range(retries):
+        try:
+            r = client.post(
+                f"{BASE_URL}/{endpoint}", content=body, headers=HEADERS, timeout=30
+            )
+            decoded = base64.b64decode(r.text).decode("utf-8")
+            return json.loads(decoded)
+        except Exception as e:
+            if attempt < retries - 1:
+                wait = 2 ** (attempt + 1)
+                print(
+                    f"    [RETRY] post_b64 attempt {attempt + 1} failed: {e}, retrying in {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                print(f"    [ERROR] post_b64 failed after {retries} attempts: {e}")
+                return {"_raw": str(e)[:500], "_status": 0}
 
 
-def download_file(client: httpx.Client, filepath: str, dest: Path) -> bool:
-    """Download a single XLSX file from CPCB. Returns True on success."""
+def download_file(
+    client: httpx.Client, filepath: str, dest: Path, retries: int = 3
+) -> bool:
+    """Download a single XLSX file from CPCB. Returns True on success. Retries on failure."""
     url = f"{BASE_URL}/download_file?file_name={filepath}"
-    try:
-        r = client.get(url, headers=HEADERS, timeout=60, follow_redirects=True)
-        if r.status_code == 200 and len(r.content) > 100:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(r.content)
-            return True
-        else:
-            return False
-    except Exception as e:
-        print(f"    [ERROR] download failed: {e}")
-        return False
+    for attempt in range(retries):
+        try:
+            r = client.get(url, headers=HEADERS, timeout=60, follow_redirects=True)
+            if r.status_code == 200 and len(r.content) > 100:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(r.content)
+                return True
+            else:
+                if attempt < retries - 1:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                return False
+        except Exception as e:
+            if attempt < retries - 1:
+                wait = 2 ** (attempt + 1)
+                print(
+                    f"    [RETRY] download attempt {attempt + 1} failed: {e}, retrying in {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                print(f"    [ERROR] download failed after {retries} attempts: {e}")
+                return False
+    return False
 
 
 # ── Station registry loader ───────────────────────────────────────────
+
 
 def load_stations(state_filter: str | None = None) -> list[dict]:
     """
@@ -93,16 +128,19 @@ def load_stations(state_filter: str | None = None) -> list[dict]:
         for city_obj in city_list:
             city = city_obj["value"]
             for st in stations_by_city.get(city, []):
-                result.append({
-                    "state": state,
-                    "city": city,
-                    "station_id": st["value"],
-                    "station_label": st["label"],
-                })
+                result.append(
+                    {
+                        "state": state,
+                        "city": city,
+                        "station_id": st["value"],
+                        "station_label": st["label"],
+                    }
+                )
     return result
 
 
 # ── Main download loop ────────────────────────────────────────────────
+
 
 def run(
     state_filter: str | None,
@@ -112,7 +150,10 @@ def run(
     delay: float,
 ):
     stations = load_stations(state_filter)
-    print(f"Loaded {len(stations)} stations" + (f" (state={state_filter})" if state_filter else ""))
+    print(
+        f"Loaded {len(stations)} stations"
+        + (f" (state={state_filter})" if state_filter else "")
+    )
 
     if daily:
         print("Mode: DAILY city-level (one file per city per year)")
@@ -128,7 +169,11 @@ def run(
     total_failed = 0
     total_api_calls = 0
 
-    client = httpx.Client(http2=False)
+    client = httpx.Client(
+        http2=False,
+        verify=False,
+        timeout=httpx.Timeout(connect=15, read=60, write=30, pool=60),
+    )
 
     if daily:
         # For daily mode, group by (state, city) to avoid duplicate requests
@@ -157,7 +202,9 @@ def run(
                 time.sleep(delay)
 
                 if result.get("status") != "success" or "data" not in result:
-                    print(f"  [{st['state']}/{st['city']}] file_Path failed: {str(result)[:200]}")
+                    print(
+                        f"  [{st['state']}/{st['city']}] file_Path failed: {str(result)[:200]}"
+                    )
                     total_failed += 1
                     continue
 
@@ -200,7 +247,9 @@ def run(
             city_dir = sanitize(st["city"])
             station_dir = sanitize(st["station_label"])
 
-            print(f"[{idx+1}/{len(stations)}] {st['station_label']} ({st['city']}, {st['state']})")
+            print(
+                f"[{idx + 1}/{len(stations)}] {st['station_label']} ({st['city']}, {st['state']})"
+            )
 
             for year in years:
                 payload = {
@@ -229,7 +278,15 @@ def run(
                         continue
 
                     fname = fp.split("/")[-1]
-                    dest = RAW_DIR / "hourly" / state_dir / city_dir / station_dir / str(year) / fname
+                    dest = (
+                        RAW_DIR
+                        / "hourly"
+                        / state_dir
+                        / city_dir
+                        / station_dir
+                        / str(year)
+                        / fname
+                    )
 
                     if dest.exists():
                         total_skipped += 1
@@ -264,14 +321,28 @@ def run(
 def main():
     parser = argparse.ArgumentParser(description="Download CPCB historical AQI data")
     parser.add_argument("--state", type=str, default=None, help="Filter by state name")
-    parser.add_argument("--years", type=str, default="2025,2024",
-                        help="Comma-separated years (default: 2025,2024)")
-    parser.add_argument("--daily", action="store_true",
-                        help="Download daily city-level data instead of hourly station-level")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show what would be downloaded without downloading")
-    parser.add_argument("--delay", type=float, default=0.5,
-                        help="Delay in seconds between API requests (default: 0.5)")
+    parser.add_argument(
+        "--years",
+        type=str,
+        default="2025,2024",
+        help="Comma-separated years (default: 2025,2024)",
+    )
+    parser.add_argument(
+        "--daily",
+        action="store_true",
+        help="Download daily city-level data instead of hourly station-level",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be downloaded without downloading",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.5,
+        help="Delay in seconds between API requests (default: 0.5)",
+    )
     args = parser.parse_args()
 
     years = [int(y.strip()) for y in args.years.split(",")]

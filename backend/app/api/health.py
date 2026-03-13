@@ -1,8 +1,9 @@
-"""Health Check API Endpoints — wired to real DB connections."""
+"""Health Check API Endpoints — wired to real DB connections + Redis cache."""
 
 from fastapi import APIRouter
 from loguru import logger
 
+from app.core.redis import health_check as redis_health_check, get_cache_stats
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 
@@ -21,6 +22,8 @@ async def health_check():
     except Exception as e:
         logger.warning(f"ClickHouse health check failed: {e}")
 
+    redis_ok = await redis_health_check()
+
     overall = "healthy" if (pg_ok and ch_ok) else "degraded"
     return {
         "status": overall,
@@ -28,6 +31,7 @@ async def health_check():
         "components": {
             "postgres": "connected" if pg_ok else "disconnected",
             "clickhouse": "connected" if ch_ok else "disconnected",
+            "redis": "connected" if redis_ok else "disconnected",
         },
     }
 
@@ -60,7 +64,22 @@ async def detailed_health():
     except Exception:
         pass
 
-    overall = "healthy" if (pg_status == "healthy" and ch_status == "healthy") else "degraded"
+    overall = (
+        "healthy" if (pg_status == "healthy" and ch_status == "healthy") else "degraded"
+    )
+
+    # Redis
+    redis_status = "disconnected"
+    redis_latency = -1
+    try:
+        t0 = time.monotonic()
+        redis_ok = await redis_health_check()
+        redis_latency = round((time.monotonic() - t0) * 1000, 1)
+        redis_status = "healthy" if redis_ok else "unhealthy"
+    except Exception:
+        pass
+
+    cache_stats = await get_cache_stats()
 
     return {
         "status": overall,
@@ -68,6 +87,10 @@ async def detailed_health():
             "database": {
                 "postgres": {"status": pg_status, "latency_ms": pg_latency},
                 "clickhouse": {"status": ch_status, "latency_ms": ch_latency},
+            },
+            "cache": {
+                "redis": {"status": redis_status, "latency_ms": redis_latency},
+                "stats": cache_stats,
             },
             "services": {
                 "forecasting": {"status": "ready"},

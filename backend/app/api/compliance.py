@@ -7,11 +7,13 @@ from datetime import datetime
 from app.services.ocems.auto_healer import auto_healer
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
+from app.core.redis import cached
 
 router = APIRouter()
 
 
 @router.get("/")
+@cached(ttl_seconds=120, prefix="compliance_summary")
 async def get_compliance_summary():
     """Get overall OCEMS compliance summary across all CG factories."""
     factories = await pg_writer.get_factories()
@@ -38,7 +40,9 @@ async def get_compliance_summary():
 
     overall_pct = 0
     if rows:
-        overall_pct = round(sum(r.get("compliance_pct", 0) for r in rows) / len(rows), 1)
+        overall_pct = round(
+            sum(r.get("compliance_pct", 0) for r in rows) / len(rows), 1
+        )
 
     return {
         "total_factories": len(factories),
@@ -70,10 +74,15 @@ async def get_factory_compliance(factory_id: str):
     """Get detailed compliance status for a factory."""
     # Get recent OCEMS readings
     readings = await ch_writer.query_recent_readings(
-        "ocems_raw", factory_id, id_column="factory_id", hours=24,
+        "ocems_raw",
+        factory_id,
+        id_column="factory_id",
+        hours=24,
     )
     if not readings:
-        raise HTTPException(status_code=404, detail=f"No recent data for factory {factory_id}")
+        raise HTTPException(
+            status_code=404, detail=f"No recent data for factory {factory_id}"
+        )
 
     # Group by parameter
     params: dict[str, list] = {}
@@ -100,7 +109,9 @@ async def get_factory_compliance(factory_id: str):
 
     sample = readings[0]
     overall_compliance = round(
-        sum(d["compliance_pct"] for d in param_details.values()) / max(1, len(param_details)), 1
+        sum(d["compliance_pct"] for d in param_details.values())
+        / max(1, len(param_details)),
+        1,
     )
 
     return {
@@ -118,7 +129,9 @@ async def get_factory_compliance(factory_id: str):
 @router.get("/auto-healer/diagnose/{factory_id}")
 async def diagnose_factory(
     factory_id: str,
-    parameter: Optional[str] = Query(None, description="Specific parameter to diagnose"),
+    parameter: Optional[str] = Query(
+        None, description="Specific parameter to diagnose"
+    ),
     hours: int = Query(6, ge=1, le=48),
 ):
     """
@@ -127,13 +140,16 @@ async def diagnose_factory(
     stuck_value, statistical_outlier.
     """
     try:
-        result = await auto_healer.diagnose(factory_id, parameter=parameter, hours=hours)
+        result = await auto_healer.diagnose(
+            factory_id, parameter=parameter, hours=hours
+        )
         return result.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {str(e)}")
 
 
 @router.get("/exceedances")
+@cached(ttl_seconds=120, prefix="compliance_exceed")
 async def get_exceedances(
     city: Optional[str] = Query(None),
     hours: int = Query(24, ge=1, le=168),

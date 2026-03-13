@@ -7,6 +7,7 @@ from datetime import datetime
 from app.models.schemas import ForecastRequest
 from app.services.forecasting.nixtla_forecaster import forecaster
 from app.services.ingestion.clickhouse_writer import ch_writer
+from app.core.redis import cached
 
 router = APIRouter()
 
@@ -29,14 +30,29 @@ async def get_forecasting_info():
                 "supports_probabilistic": True,
             },
         ],
-        "supported_parameters": ["PM2.5", "PM10", "NO2", "SO2", "CO", "O3", "NH3", "Pb",
-                                  "pH", "DO", "BOD", "COD", "Leq", "Lden"],
+        "supported_parameters": [
+            "PM2.5",
+            "PM10",
+            "NO2",
+            "SO2",
+            "CO",
+            "O3",
+            "NH3",
+            "Pb",
+            "pH",
+            "DO",
+            "BOD",
+            "COD",
+            "Leq",
+            "Lden",
+        ],
         "forecast_horizons": ["1h", "6h", "12h", "24h", "48h", "72h"],
         "confidence_intervals": ["50%", "90%"],
     }
 
 
 @router.post("/air-quality")
+@cached(ttl_seconds=600, prefix="forecast_air")
 async def forecast_air_quality(
     station_id: str,
     parameter: str = Query("PM2.5", description="Parameter to forecast"),
@@ -94,6 +110,7 @@ async def forecast_noise_levels(
 
 
 @router.get("/model-performance")
+@cached(ttl_seconds=300, prefix="forecast_perf")
 async def get_model_performance(
     station_id: str = Query("AQ-CG-001", description="Station ID"),
     parameter: str = Query("PM2.5", description="Parameter"),
