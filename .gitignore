@@ -81,3 +81,9 @@ postgres_data/
 
 # ToolJet data
 tooljet_data/
+
+# Scraped HTML pages (may contain embedded third-party API keys)
+cpcb_page_structure.html
+
+# Large data exports
+data/*.csv
