@@ -123,9 +123,31 @@ async def root():
     return {
         "name": "PRITHVINET API",
         "version": "1.0.0",
-        "description": "Smart Environmental Monitoring & Compliance Platform for Chhattisgarh",
+        "description": "Smart Environmental Monitoring & Compliance Platform — All India (591 CPCB Stations, 32 States/UTs)",
         "status": "operational",
+        "coverage": {
+            "stations": 591,
+            "states": 32,
+            "data_rows": "63M+",
+            "parameters": [
+                "PM2.5",
+                "PM10",
+                "NO2",
+                "SO2",
+                "CO",
+                "O3",
+                "NH3",
+                "Pb",
+                "AQI",
+            ],
+        },
+        "features": [
+            "Real-time air quality monitoring (554 live stations)",
+            "OCEMS Auto-Healer — sensor fault vs real pollution detection",
+            "Causal AI policy simulator — NumPy SEM what-if analysis",
+            "Probabilistic forecasting — Nixtla TimeGPT + Holt fallback",
+            "Gamified citizen engagement — eco-points & leaderboard",
+        ],
         "docs": "/docs",
         "health": "/health",
-        "cities": ["Raipur", "Bhilai", "Korba", "Bilaspur", "Durg", "Raigarh"],
     }
