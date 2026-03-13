@@ -168,29 +168,54 @@ export function getAQICategory(aqi: number): AQICategory {
   return "Severe";
 }
 
+// Official CPCB AQI color hex values
+export const CPCB_AQI_COLORS: Record<AQICategory, string> = {
+  Good: "#009966",
+  Satisfactory: "#58FF09",
+  Moderate: "#FFDE33",
+  Poor: "#FF9933",
+  "Very Poor": "#FF0000",
+  Severe: "#800000",
+};
+
+// Text color for readability on each CPCB background
+export const CPCB_AQI_TEXT_COLORS: Record<AQICategory, string> = {
+  Good: "#ffffff",
+  Satisfactory: "#1a1a1a",
+  Moderate: "#1a1a1a",
+  Poor: "#ffffff",
+  "Very Poor": "#ffffff",
+  Severe: "#ffffff",
+};
+
+// CPCB health impact descriptions
+export const CPCB_AQI_HEALTH_IMPACTS: Record<AQICategory, string> = {
+  Good: "Minimal impact",
+  Satisfactory: "May cause minor breathing discomfort to sensitive people",
+  Moderate: "May cause breathing discomfort to people with lung disease such as asthma, and discomfort to people with heart disease, children and older adults",
+  Poor: "May cause breathing discomfort to people on prolonged exposure, and discomfort to people with heart disease",
+  "Very Poor": "May cause respiratory illness to the people on prolonged exposure. Effect may be more pronounced in people with lung and heart diseases",
+  Severe: "May cause respiratory impact even on healthy people, and serious health impacts on people with lung/heart disease. The health impacts may be experienced even during light physical activity",
+};
+
+// AQI range strings for display
+export const CPCB_AQI_RANGES: Record<AQICategory, string> = {
+  Good: "0-50",
+  Satisfactory: "51-100",
+  Moderate: "101-200",
+  Poor: "201-300",
+  "Very Poor": "301-400",
+  Severe: "401-500",
+};
+
+export const AQI_CATEGORIES_ORDERED: AQICategory[] = [
+  "Good", "Satisfactory", "Moderate", "Poor", "Very Poor", "Severe",
+];
+
 export function getAQIColor(aqi: number): string {
-  if (aqi <= 50) return "#22c55e";   // green
-  if (aqi <= 100) return "#84cc16";  // lime
-  if (aqi <= 200) return "#eab308";  // yellow
-  if (aqi <= 300) return "#f97316";  // orange
-  if (aqi <= 400) return "#ef4444";  // red
-  return "#991b1b";                   // dark red
+  return CPCB_AQI_COLORS[getAQICategory(aqi)];
 }
 
-export function getAQIBgClass(aqi: number): string {
-  if (aqi <= 50) return "bg-green-500";
-  if (aqi <= 100) return "bg-lime-500";
-  if (aqi <= 200) return "bg-yellow-500";
-  if (aqi <= 300) return "bg-orange-500";
-  if (aqi <= 400) return "bg-red-500";
-  return "bg-red-900";
-}
-
-export function getAQITextClass(aqi: number): string {
-  if (aqi <= 50) return "text-green-600";
-  if (aqi <= 100) return "text-lime-600";
-  if (aqi <= 200) return "text-yellow-600";
-  if (aqi <= 300) return "text-orange-600";
-  if (aqi <= 400) return "text-red-600";
-  return "text-red-900";
+export function getAQITextOnColor(aqi: number): string {
+  return CPCB_AQI_TEXT_COLORS[getAQICategory(aqi)];
 }

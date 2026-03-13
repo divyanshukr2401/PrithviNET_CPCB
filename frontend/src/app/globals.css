@@ -41,9 +41,9 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
-/* Leaflet overrides for dark theme */
+/* Leaflet overrides — light map tiles with dark UI chrome */
 .leaflet-container {
-  background: #1e293b;
+  background: #e8e8e8;
   border-radius: 0.5rem;
 }
 
@@ -105,13 +105,13 @@ body {
   background: #64748b;
 }
 
-/* AQI category badges */
-.aqi-good { background-color: #22c55e; color: white; }
-.aqi-satisfactory { background-color: #84cc16; color: white; }
-.aqi-moderate { background-color: #eab308; color: #1e293b; }
-.aqi-poor { background-color: #f97316; color: white; }
-.aqi-very-poor { background-color: #ef4444; color: white; }
-.aqi-severe { background-color: #991b1b; color: white; }
+/* AQI category badges — official CPCB colors */
+.aqi-good { background-color: #009966; color: white; }
+.aqi-satisfactory { background-color: #58FF09; color: #1a1a1a; }
+.aqi-moderate { background-color: #FFDE33; color: #1a1a1a; }
+.aqi-poor { background-color: #FF9933; color: white; }
+.aqi-very-poor { background-color: #FF0000; color: white; }
+.aqi-severe { background-color: #800000; color: white; }
 
 /* Pulse animation for live indicator */
 @keyframes pulse-dot {

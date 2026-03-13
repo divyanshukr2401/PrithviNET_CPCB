@@ -1,7 +1,17 @@
 "use client";
 
 import type { AirReading } from "@/lib/types";
-import { getAQIColor, getAQICategory, getAQIBgClass } from "@/lib/types";
+import {
+  getAQIColor,
+  getAQICategory,
+  getAQITextOnColor,
+  CPCB_AQI_COLORS,
+  CPCB_AQI_TEXT_COLORS,
+  CPCB_AQI_HEALTH_IMPACTS,
+  CPCB_AQI_RANGES,
+  AQI_CATEGORIES_ORDERED,
+} from "@/lib/types";
+import type { AQICategory } from "@/lib/types";
 import {
   BarChart,
   Bar,
@@ -13,31 +23,248 @@ import {
   Cell,
 } from "recharts";
 
-interface PollutantChartProps {
-  readings: AirReading[];
-  stationId: string;
-}
-
-const POLLUTANT_LIMITS: Record<string, { naaqs: number; label: string }> = {
-  "PM2.5": { naaqs: 60, label: "PM2.5 (ug/m3)" },
-  PM10: { naaqs: 100, label: "PM10 (ug/m3)" },
-  NO2: { naaqs: 80, label: "NO2 (ug/m3)" },
-  SO2: { naaqs: 80, label: "SO2 (ug/m3)" },
-  CO: { naaqs: 4, label: "CO (mg/m3)" },
-  O3: { naaqs: 180, label: "O3 (ug/m3)" },
-  NH3: { naaqs: 400, label: "NH3 (ug/m3)" },
-  Pb: { naaqs: 1, label: "Pb (ug/m3)" },
+// ── NAAQS pollutant limits ─────────────────────────────────
+const POLLUTANT_LIMITS: Record<string, { naaqs: number; label: string; unit: string }> = {
+  "PM2.5": { naaqs: 60, label: "PM2.5", unit: "\u00b5g/m\u00b3" },
+  PM10: { naaqs: 100, label: "PM10", unit: "\u00b5g/m\u00b3" },
+  NO2: { naaqs: 80, label: "NO\u2082", unit: "\u00b5g/m\u00b3" },
+  SO2: { naaqs: 80, label: "SO\u2082", unit: "\u00b5g/m\u00b3" },
+  CO: { naaqs: 4, label: "CO", unit: "mg/m\u00b3" },
+  O3: { naaqs: 180, label: "O\u2083", unit: "\u00b5g/m\u00b3" },
+  NH3: { naaqs: 400, label: "NH\u2083", unit: "\u00b5g/m\u00b3" },
+  Pb: { naaqs: 1, label: "Pb", unit: "\u00b5g/m\u00b3" },
 };
 
-function getBarColor(param: string, value: number): string {
+function getPollutantColor(param: string, value: number): string {
   const limit = POLLUTANT_LIMITS[param];
   if (!limit) return "#64748b";
   const ratio = value / limit.naaqs;
-  if (ratio <= 0.5) return "#22c55e";
-  if (ratio <= 0.8) return "#84cc16";
-  if (ratio <= 1.0) return "#eab308";
-  if (ratio <= 1.5) return "#f97316";
-  return "#ef4444";
+  if (ratio <= 0.5) return CPCB_AQI_COLORS.Good;
+  if (ratio <= 0.8) return CPCB_AQI_COLORS.Satisfactory;
+  if (ratio <= 1.0) return CPCB_AQI_COLORS.Moderate;
+  if (ratio <= 1.5) return CPCB_AQI_COLORS.Poor;
+  if (ratio <= 2.0) return CPCB_AQI_COLORS["Very Poor"];
+  return CPCB_AQI_COLORS.Severe;
+}
+
+// ── AQI Circular Gauge (SVG) ───────────────────────────────
+interface AQIGaugeProps {
+  aqi: number;
+  size?: number;
+}
+
+export function AQIGauge({ aqi, size = 160 }: AQIGaugeProps) {
+  const color = getAQIColor(aqi);
+  const textColor = getAQITextOnColor(aqi);
+  const category = getAQICategory(aqi);
+  const radius = (size - 16) / 2;
+  const circumference = 2 * Math.PI * radius;
+  // AQI 0-500 mapped to 0-100%
+  const pct = Math.min(aqi / 500, 1);
+  const dashOffset = circumference * (1 - pct);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <svg width={size} height={size} className="transform -rotate-90">
+        {/* Background ring */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#334155"
+          strokeWidth={10}
+        />
+        {/* Colored AQI arc */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={10}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          strokeLinecap="round"
+          className="transition-all duration-700"
+        />
+        {/* Center fill */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius - 12}
+          fill={color}
+          opacity={0.15}
+        />
+      </svg>
+      {/* AQI value overlay */}
+      <div
+        className="absolute flex flex-col items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        <span className="text-4xl font-bold" style={{ color }}>
+          {aqi}
+        </span>
+        <span className="text-xs font-medium text-muted-foreground mt-0.5">AQI</span>
+      </div>
+      {/* Category badge below */}
+      <span
+        className="px-3 py-1 rounded-full text-xs font-bold"
+        style={{ backgroundColor: color, color: textColor }}
+      >
+        {category}
+      </span>
+    </div>
+  );
+}
+
+// ── Station Detail Panel (CPCB-style right panel) ──────────
+interface StationDetailPanelProps {
+  readings: AirReading[];
+  stationId: string;
+  stationName?: string;
+  onClose: () => void;
+}
+
+export function StationDetailPanel({
+  readings,
+  stationId,
+  stationName,
+  onClose,
+}: StationDetailPanelProps) {
+  const aqiReading = readings.find(
+    (r) => r.station_id === stationId && r.parameter === "AQI"
+  );
+  const pollutantReadings = readings.filter(
+    (r) => r.station_id === stationId && r.parameter !== "AQI"
+  );
+
+  if (!aqiReading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        No data for this station
+      </div>
+    );
+  }
+
+  const category = getAQICategory(aqiReading.aqi);
+  const color = getAQIColor(aqiReading.aqi);
+
+  // Find prominent pollutant (highest sub-index ratio)
+  let prominentPollutant = "N/A";
+  let maxRatio = 0;
+  pollutantReadings.forEach((r) => {
+    const limit = POLLUTANT_LIMITS[r.parameter];
+    if (limit) {
+      const ratio = r.value / limit.naaqs;
+      if (ratio > maxRatio) {
+        maxRatio = ratio;
+        prominentPollutant = r.parameter;
+      }
+    }
+  });
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="p-4 border-b border-border flex items-center justify-between">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-foreground truncate">
+            {stationName || stationId}
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            {aqiReading.city} &middot; {stationId}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted/50"
+        >
+          Close
+        </button>
+      </div>
+
+      {/* Gauge + Meta */}
+      <div className="p-4 flex flex-col items-center gap-3">
+        <div className="relative">
+          <AQIGauge aqi={aqiReading.aqi} size={150} />
+        </div>
+
+        {/* Prominent pollutant badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Prominent Pollutant:</span>
+          <span
+            className="px-2 py-0.5 rounded text-xs font-bold"
+            style={{ backgroundColor: color, color: getAQITextOnColor(aqiReading.aqi) }}
+          >
+            {prominentPollutant}
+          </span>
+        </div>
+
+        {/* Last updated */}
+        <p className="text-xs text-muted-foreground">
+          Updated: {new Date(aqiReading.timestamp).toLocaleString()}
+        </p>
+      </div>
+
+      {/* Pollutant breakdown table */}
+      <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-muted-foreground uppercase border-b border-border">
+              <th className="text-left py-2">Pollutant</th>
+              <th className="text-right py-2">Value</th>
+              <th className="text-right py-2">NAAQS</th>
+              <th className="text-center py-2 w-20">Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pollutantReadings.map((r) => {
+              const limit = POLLUTANT_LIMITS[r.parameter];
+              const pColor = getPollutantColor(r.parameter, r.value);
+              const ratio = limit ? r.value / limit.naaqs : 0;
+              return (
+                <tr key={r.parameter} className="border-b border-border/30">
+                  <td className="py-2 font-medium">
+                    {limit?.label || r.parameter}
+                  </td>
+                  <td className="py-2 text-right font-mono text-xs">
+                    {r.value.toFixed(1)} <span className="text-muted-foreground">{limit?.unit || r.unit}</span>
+                  </td>
+                  <td className="py-2 text-right font-mono text-xs text-muted-foreground">
+                    {limit?.naaqs ?? "—"}
+                  </td>
+                  <td className="py-2">
+                    <div className="flex items-center gap-1.5 justify-center">
+                      {/* Mini bar */}
+                      <div className="w-12 h-2.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(ratio * 100, 100)}%`,
+                            backgroundColor: pColor,
+                          }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono" style={{ color: pColor }}>
+                        {(ratio * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Pollutant Bar Chart ────────────────────────────────────
+interface PollutantChartProps {
+  readings: AirReading[];
+  stationId: string;
 }
 
 export function PollutantChart({ readings, stationId }: PollutantChartProps) {
@@ -58,7 +285,7 @@ export function PollutantChart({ readings, stationId }: PollutantChartProps) {
     value: Number(r.value.toFixed(2)),
     unit: r.unit,
     limit: POLLUTANT_LIMITS[r.parameter]?.naaqs || 0,
-    color: getBarColor(r.parameter, r.value),
+    color: getPollutantColor(r.parameter, r.value),
   }));
 
   return (
@@ -85,8 +312,8 @@ export function PollutantChart({ readings, stationId }: PollutantChartProps) {
             const key = String(name ?? "");
             const limit = POLLUTANT_LIMITS[key];
             return [
-              `${Number(value)} ${limit?.label?.split(" ").pop() || ""}`,
-              key,
+              `${Number(value)} ${limit?.unit || ""}`,
+              limit?.label || key,
             ];
           }}
         />
@@ -114,12 +341,6 @@ export function StatsCards({ readings }: StatsCardsProps) {
   );
   const maxAqi = Math.max(...aqiReadings.map((r) => r.aqi));
   const minAqi = Math.min(...aqiReadings.map((r) => r.aqi));
-
-  const categoryCount: Record<string, number> = {};
-  aqiReadings.forEach((r) => {
-    const cat = getAQICategory(r.aqi);
-    categoryCount[cat] = (categoryCount[cat] || 0) + 1;
-  });
 
   const stats = [
     {
@@ -158,14 +379,7 @@ export function StatsCards({ readings }: StatsCardsProps) {
           <p className="text-xs text-muted-foreground uppercase tracking-wider">
             {stat.label}
           </p>
-          <p
-            className="text-3xl font-bold mt-1"
-            style={{
-              color: typeof stat.color === "string" && stat.color.startsWith("#")
-                ? stat.color
-                : undefined,
-            }}
-          >
+          <p className="text-3xl font-bold mt-1" style={{ color: stat.color }}>
             {stat.value}
           </p>
           <p className="text-xs text-muted-foreground mt-1">{stat.sub}</p>
@@ -175,33 +389,28 @@ export function StatsCards({ readings }: StatsCardsProps) {
   );
 }
 
-// ── AQI Category Distribution ──────────────────────────────
+// ── AQI Category Badges (distribution) ─────────────────────
 export function AQICategoryBadges({ readings }: StatsCardsProps) {
   const aqiReadings = readings.filter((r) => r.parameter === "AQI");
-  const categories = ["Good", "Satisfactory", "Moderate", "Poor", "Very Poor", "Severe"] as const;
   const counts: Record<string, number> = {};
-  categories.forEach((c) => (counts[c] = 0));
+  AQI_CATEGORIES_ORDERED.forEach((c) => (counts[c] = 0));
   aqiReadings.forEach((r) => {
     const cat = getAQICategory(r.aqi);
     counts[cat] = (counts[cat] || 0) + 1;
   });
 
-  const catColors: Record<string, string> = {
-    Good: "bg-green-500/20 text-green-400 border-green-500/30",
-    Satisfactory: "bg-lime-500/20 text-lime-400 border-lime-500/30",
-    Moderate: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    Poor: "bg-orange-500/20 text-orange-400 border-orange-500/30",
-    "Very Poor": "bg-red-500/20 text-red-400 border-red-500/30",
-    Severe: "bg-red-900/30 text-red-300 border-red-800/30",
-  };
-
   return (
     <div className="flex flex-wrap gap-2">
-      {categories.map((cat) =>
+      {AQI_CATEGORIES_ORDERED.map((cat) =>
         counts[cat] > 0 ? (
           <span
             key={cat}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium border ${catColors[cat]}`}
+            className="px-2.5 py-1 rounded-full text-xs font-medium border"
+            style={{
+              backgroundColor: CPCB_AQI_COLORS[cat] + "22",
+              color: CPCB_AQI_COLORS[cat],
+              borderColor: CPCB_AQI_COLORS[cat] + "44",
+            }}
           >
             {cat}: {counts[cat]}
           </span>
@@ -211,21 +420,65 @@ export function AQICategoryBadges({ readings }: StatsCardsProps) {
   );
 }
 
+// ── AQI Color Legend Table (CPCB-style) ────────────────────
+export function AQIColorLegend() {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="bg-muted/30">
+            <th className="text-center py-2 px-3 text-xs uppercase text-muted-foreground font-medium">AQI</th>
+            <th className="text-center py-2 px-3 text-xs uppercase text-muted-foreground font-medium">Remark</th>
+            <th className="text-center py-2 px-3 text-xs uppercase text-muted-foreground font-medium w-16">Color</th>
+            <th className="text-left py-2 px-3 text-xs uppercase text-muted-foreground font-medium">Possible Health Impacts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {AQI_CATEGORIES_ORDERED.map((cat) => (
+            <tr key={cat} className="border-t border-border/30">
+              <td className="text-center py-2 px-3 font-mono text-xs">{CPCB_AQI_RANGES[cat]}</td>
+              <td className="text-center py-2 px-3 font-medium text-xs">{cat}</td>
+              <td className="py-2 px-3">
+                <div
+                  className="w-full h-5 rounded"
+                  style={{ backgroundColor: CPCB_AQI_COLORS[cat] }}
+                />
+              </td>
+              <td className="py-2 px-3 text-xs text-muted-foreground">
+                {CPCB_AQI_HEALTH_IMPACTS[cat]}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Station List Table ─────────────────────────────────────
 interface StationListProps {
   readings: AirReading[];
   onStationClick?: (stationId: string) => void;
+  stationNameMap?: Record<string, string>;
+  selectedStationId?: string | null;
+  maxHeight?: string;
 }
 
-export function StationList({ readings, onStationClick }: StationListProps) {
+export function StationList({
+  readings,
+  onStationClick,
+  stationNameMap,
+  selectedStationId,
+  maxHeight = "400px",
+}: StationListProps) {
   const aqiReadings = readings
     .filter((r) => r.parameter === "AQI")
     .sort((a, b) => b.aqi - a.aqi);
 
   return (
-    <div className="overflow-y-auto max-h-[400px]">
+    <div className="overflow-y-auto" style={{ maxHeight }}>
       <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-card">
+        <thead className="sticky top-0 bg-card z-10">
           <tr className="text-muted-foreground text-xs uppercase">
             <th className="text-left py-2 px-2">Station</th>
             <th className="text-left py-2 px-2">City</th>
@@ -237,16 +490,22 @@ export function StationList({ readings, onStationClick }: StationListProps) {
           {aqiReadings.map((r) => {
             const cat = getAQICategory(r.aqi);
             const color = getAQIColor(r.aqi);
+            const textOnColor = getAQITextOnColor(r.aqi);
+            const isSelected = r.station_id === selectedStationId;
+            const displayName =
+              stationNameMap?.[r.station_id] || r.station_id;
             return (
               <tr
                 key={r.station_id}
-                className="border-t border-border/50 cursor-pointer hover:bg-muted/30 transition-colors"
+                className={`border-t border-border/50 cursor-pointer hover:bg-muted/30 transition-colors ${
+                  isSelected ? "bg-primary/10" : ""
+                }`}
                 onClick={() => onStationClick?.(r.station_id)}
               >
-                <td className="py-2 px-2 font-mono text-xs">
-                  {r.station_id}
+                <td className="py-2 px-2 text-xs" title={r.station_id}>
+                  <span className="line-clamp-1">{displayName}</span>
                 </td>
-                <td className="py-2 px-2">{r.city}</td>
+                <td className="py-2 px-2 text-xs">{r.city}</td>
                 <td
                   className="py-2 px-2 text-right font-bold"
                   style={{ color }}
@@ -255,10 +514,10 @@ export function StationList({ readings, onStationClick }: StationListProps) {
                 </td>
                 <td className="py-2 px-2">
                   <span
-                    className="px-1.5 py-0.5 rounded text-xs"
+                    className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
                     style={{
-                      backgroundColor: color + "22",
-                      color: color,
+                      backgroundColor: color,
+                      color: textOnColor,
                     }}
                   >
                     {cat}
