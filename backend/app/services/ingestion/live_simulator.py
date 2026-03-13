@@ -134,7 +134,8 @@ class LiveSimulator:
         # Background task handle
         self._task: Optional[asyncio.Task] = None
         # Smoothing factor for autocorrelation (0 = no memory, 1 = fully sticky)
-        self.alpha = 0.6
+        # Higher alpha = stickier readings between ticks = more believable transitions
+        self.alpha = 0.7
         # Random generator for decomposition
         self._rng = np.random.default_rng(seed=None)  # non-deterministic for live
 
@@ -283,10 +284,11 @@ class LiveSimulator:
         profile = profiles.get(hour, FALLBACK_PROFILES.get(hour, HourlyProfile()))
 
         # Sample base value from the profile distribution
-        raw_sample = random.gauss(profile.mean, profile.std)
-        # Clip to realistic bounds (soft-clip using p10/p90 with some headroom)
-        lower = max(0, profile.p10 - 20)
-        upper = min(500, profile.p90 + 30)
+        # Use 0.5× std dev so 95% of raw samples stay within ±1σ of historical mean
+        raw_sample = random.gauss(profile.mean, profile.std * 0.5)
+        # Clip tightly to observed p10–p90 range for believable demo values
+        lower = max(0, profile.p10)
+        upper = min(500, profile.p90)
         raw_sample = max(lower, min(upper, raw_sample))
 
         # Apply monthly seasonal factor
@@ -300,8 +302,8 @@ class LiveSimulator:
         else:
             aqi = raw_sample
 
-        # Small jitter for realism
-        aqi += random.uniform(-3, 3)
+        # Small jitter for realism (tightened for demo believability)
+        aqi += random.uniform(-1, 1)
         aqi = max(0, min(500, round(aqi)))
 
         # Store for next tick
