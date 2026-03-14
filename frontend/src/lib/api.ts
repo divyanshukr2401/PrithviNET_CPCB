@@ -1,7 +1,7 @@
 // PRITHVINET API Client
 // Maps backend responses to frontend types
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8004";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

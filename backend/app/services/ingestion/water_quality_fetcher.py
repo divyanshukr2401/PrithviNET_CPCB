@@ -5,12 +5,17 @@ Resource ID: 19697d76-442e-4d76-aeae-13f8a17c91e1
 Fetches ~378K water quality monitoring records with real lat/lng coordinates
 and computes a composite Water Quality Index for heatmap visualization.
 
+Strategy: fetch per-state to guarantee uniform coverage across all Indian
+states/UTs. Without this, a global limit=5000 only sees ~1.3% of the dataset
+and misses entire states (Rajasthan, Punjab, Goa, Haryana, etc.).
+
 Actual field names from the API (case-sensitive):
   Latitude, Longitude, Station_Name, State, District, Basin, Sub_Basin,
   bod, tcol_mpn, fcol_mpn, ec_gen, no3_n, ph_fld, ph_gen, temp, tds,
   d_o, do_sat_, turb, ss, ... (many may be 'NA')
 """
 
+import asyncio
 import json
 from typing import Optional
 
@@ -20,6 +25,44 @@ from loguru import logger
 DATA_GOV_API_KEY = "579b464db66ec23bdd000001bc6f0074ab864acb60a45cfbeb72efdd"
 RESOURCE_ID = "19697d76-442e-4d76-aeae-13f8a17c91e1"
 DATA_GOV_BASE = "https://api.data.gov.in/resource"
+
+# All Indian states/UTs that have water quality data in this dataset.
+# This list drives the per-state fetch loop.
+INDIAN_STATES = [
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chandigarh",
+    "Chhattisgarh",
+    "Delhi",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jammu & Kashmir",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Lakshadweep",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Puducherry",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+]
 
 # WQI parameters: (api_field, BIS_limit, display_name)
 # Higher ratio to BIS limit = worse quality
@@ -85,6 +128,106 @@ def _compute_wqi(record: dict) -> Optional[float]:
     return round(sum(scores) / len(scores), 4)
 
 
+def _parse_record(
+    rec: dict,
+    seen_coords: set[tuple[float, float]],
+) -> Optional[dict]:
+    """
+    Parse a single API record into a heatmap point.
+    Returns None if the record is invalid, duplicate, or missing WQI data.
+    """
+    lat = _safe_float(rec.get("Latitude"))
+    lng = _safe_float(rec.get("Longitude"))
+
+    # Skip records without valid coordinates
+    if lat is None or lng is None:
+        return None
+    # Basic India bounds check
+    if not (6.0 <= lat <= 38.0 and 68.0 <= lng <= 98.0):
+        return None
+
+    wqi = _compute_wqi(rec)
+    if wqi is None:
+        return None
+
+    # Deduplicate by approximate coords (same station, different dates)
+    coord_key = (round(lat, 3), round(lng, 3))
+    if coord_key in seen_coords:
+        return None
+    seen_coords.add(coord_key)
+
+    # Extract display parameters for tooltip
+    params_dict = {}
+    for field, display_name in DISPLAY_PARAMS.items():
+        v = _safe_float(rec.get(field))
+        if v is not None:
+            params_dict[display_name] = round(v, 2)
+
+    return {
+        "lat": lat,
+        "lng": lng,
+        "intensity": wqi,
+        "station_name": rec.get("Station_Name", "Unknown"),
+        "state": rec.get("State", ""),
+        "district": rec.get("District", ""),
+        "station_code": "",
+        "wqi": wqi,
+        "parameters": params_dict,
+    }
+
+
+async def _fetch_state_points(
+    client: httpx.AsyncClient,
+    state: str,
+    per_state_limit: int,
+    seen_coords: set[tuple[float, float]],
+) -> list[dict]:
+    """
+    Fetch water quality points for a single state.
+    Pages through the API with filters[State]=<state>.
+    """
+    points: list[dict] = []
+    offset = 0
+    batch_size = 500  # API max per page
+    fetched = 0
+
+    while fetched < per_state_limit:
+        req_params = {
+            "api-key": DATA_GOV_API_KEY,
+            "format": "json",
+            "offset": offset,
+            "limit": batch_size,
+            "filters[State]": state,
+        }
+
+        try:
+            resp = await client.get(f"{DATA_GOV_BASE}/{RESOURCE_ID}", params=req_params)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning(
+                f"data.gov.in fetch error for {state} (offset={offset}): {e}"
+            )
+            break
+
+        records = data.get("records", [])
+        if not records:
+            break
+
+        for rec in records:
+            point = _parse_record(rec, seen_coords)
+            if point:
+                points.append(point)
+
+        fetched += len(records)
+        offset += batch_size
+
+        if len(records) < batch_size:
+            break  # No more data for this state
+
+    return points
+
+
 async def fetch_water_quality_heatmap(
     limit: int = 5000,
     state: Optional[str] = None,
@@ -92,92 +235,51 @@ async def fetch_water_quality_heatmap(
     """
     Fetch water quality data from data.gov.in and return heatmap-ready points.
 
+    If state is specified, fetches only that state (up to `limit` records).
+    If state is None, fetches ALL states using per-state iteration to guarantee
+    uniform geographic coverage across India.
+
     Returns list of dicts:
         {lat, lng, intensity, station_name, state, district, wqi, parameters}
     """
     all_points: list[dict] = []
     seen_coords: set[tuple[float, float]] = set()
-    offset = 0
-    batch_size = min(limit, 500)  # API max per page
-    fetched = 0
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        while fetched < limit:
-            req_params = {
-                "api-key": DATA_GOV_API_KEY,
-                "format": "json",
-                "offset": offset,
-                "limit": batch_size,
-            }
-            if state:
-                req_params["filters[State]"] = state
+        if state:
+            # Single-state fetch (used for filtered queries)
+            all_points = await _fetch_state_points(client, state, limit, seen_coords)
+        else:
+            # Per-state fetch for full national coverage
+            # Budget: distribute limit across states, with a minimum floor
+            per_state_limit = max(500, limit // len(INDIAN_STATES))
+            total_fetched = 0
 
-            try:
-                resp = await client.get(
-                    f"{DATA_GOV_BASE}/{RESOURCE_ID}", params=req_params
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as e:
-                logger.error(f"data.gov.in fetch error (offset={offset}): {e}")
-                break
+            # Fetch states concurrently in small batches to avoid overwhelming the API
+            # Process 5 states at a time
+            for i in range(0, len(INDIAN_STATES), 5):
+                batch_states = INDIAN_STATES[i : i + 5]
+                tasks = [
+                    _fetch_state_points(client, s, per_state_limit, seen_coords)
+                    for s in batch_states
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            records = data.get("records", [])
-            if not records:
-                break
+                for s, result in zip(batch_states, results):
+                    if isinstance(result, Exception):
+                        logger.warning(f"Failed to fetch {s}: {result}")
+                        continue
+                    state_points = result
+                    all_points.extend(state_points)
+                    total_fetched += len(state_points)
+                    if state_points:
+                        logger.debug(f"  {s}: {len(state_points)} unique stations")
 
-            for rec in records:
-                lat = _safe_float(rec.get("Latitude"))
-                lng = _safe_float(rec.get("Longitude"))
-
-                # Skip records without valid coordinates
-                if lat is None or lng is None:
-                    continue
-                # Basic India bounds check
-                if not (6.0 <= lat <= 38.0 and 68.0 <= lng <= 98.0):
-                    continue
-
-                wqi = _compute_wqi(rec)
-                if wqi is None:
-                    continue
-
-                # Deduplicate by approximate coords (same station, different dates)
-                coord_key = (round(lat, 3), round(lng, 3))
-                if coord_key in seen_coords:
-                    continue
-                seen_coords.add(coord_key)
-
-                # Extract display parameters for tooltip
-                params_dict = {}
-                for field, display_name in DISPLAY_PARAMS.items():
-                    v = _safe_float(rec.get(field))
-                    if v is not None:
-                        params_dict[display_name] = round(v, 2)
-
-                all_points.append(
-                    {
-                        "lat": lat,
-                        "lng": lng,
-                        "intensity": wqi,
-                        "station_name": rec.get("Station_Name", "Unknown"),
-                        "state": rec.get("State", ""),
-                        "district": rec.get("District", ""),
-                        "station_code": "",
-                        "wqi": wqi,
-                        "parameters": params_dict,
-                    }
-                )
-
-            fetched += len(records)
-            offset += batch_size
-
-            if len(records) < batch_size:
-                break  # No more data
-
-    logger.info(
-        f"Water quality heatmap: fetched {fetched} records, "
-        f"{len(all_points)} unique station points with coordinates + WQI"
-    )
+            logger.info(
+                f"Water quality per-state fetch complete: "
+                f"{len(INDIAN_STATES)} states queried, "
+                f"{len(all_points)} unique station points with coordinates + WQI"
+            )
 
     return all_points
 
@@ -192,7 +294,7 @@ async def fetch_water_quality_cached(
     Fetch water quality data with Redis caching.
     Cache TTL defaults to 1 hour (data is historical, doesn't change).
     """
-    cache_key = f"water_quality_heatmap:{state or 'all'}:{limit}"
+    cache_key = f"water_quality_heatmap:v2:{state or 'all_states'}"
 
     # Try cache first
     if redis_client:
