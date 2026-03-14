@@ -9,7 +9,7 @@ import json
 from loguru import logger
 
 from app.models.schemas import ForecastRequest
-from app.services.forecasting.nixtla_forecaster import forecaster
+from app.services.forecasting.nixtla_forecaster import forecaster, get_yearly_profile
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.core.redis import cached, get_redis
 
@@ -193,3 +193,43 @@ async def get_model_performance(
             for r in rows
         ],
     }
+
+
+@router.get("/yearly-profile")
+async def yearly_aqi_profile(
+    station_id: str = Query(..., description="CPCB Station ID"),
+):
+    """
+    Yearly AQI profile: ~12 months historical daily averages
+    + 6 months seasonal forecast with confidence intervals.
+    """
+    # ── Cache keying ──────────────────────────────────────────────────
+    cache_ttl = 1800  # 30 min — yearly data doesn't change fast
+    key_raw = f"yearly_profile:{station_id}"
+    cache_key = f"prithvinet:{hashlib.sha256(key_raw.encode()).hexdigest()[:32]}"
+
+    try:
+        r = await get_redis()
+        hit = await r.get(cache_key)
+        if hit is not None:
+            logger.debug(f"Cache HIT: yearly_profile (key={cache_key[:20]}...)")
+            return json.loads(hit)
+    except Exception as e:
+        logger.debug(f"Cache read failed for yearly_profile: {e}")
+
+    # ── Cache miss — compute ──────────────────────────────────────────
+    try:
+        result = await get_yearly_profile(station_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Yearly profile failed: {str(e)}")
+
+    # ── Write to cache ────────────────────────────────────────────────
+    try:
+        r = await get_redis()
+        serialized = json.dumps(result, default=str)
+        await r.setex(cache_key, cache_ttl, serialized)
+        logger.debug(f"Cache SET: yearly_profile (ttl={cache_ttl}s)")
+    except Exception as e:
+        logger.debug(f"Cache write failed for yearly_profile: {e}")
+
+    return result

@@ -22,7 +22,9 @@ from typing import Optional
 import httpx
 from loguru import logger
 
-DATA_GOV_API_KEY = "579b464db66ec23bdd000001bc6f0074ab864acb60a45cfbeb72efdd"
+from app.core.config import settings
+
+DATA_GOV_API_KEY = settings.DATA_GOV_API_KEY
 RESOURCE_ID = "19697d76-442e-4d76-aeae-13f8a17c91e1"
 DATA_GOV_BASE = "https://api.data.gov.in/resource"
 
@@ -170,7 +172,7 @@ def _parse_record(
         "station_name": rec.get("Station_Name", "Unknown"),
         "state": rec.get("State", ""),
         "district": rec.get("District", ""),
-        "station_code": "",
+        "station_code": rec.get("Station_Code", "") or "",
         "wqi": wqi,
         "parameters": params_dict,
     }
@@ -294,7 +296,7 @@ async def fetch_water_quality_cached(
     Fetch water quality data with Redis caching.
     Cache TTL defaults to 1 hour (data is historical, doesn't change).
     """
-    cache_key = f"water_quality_heatmap:v2:{state or 'all_states'}"
+    cache_key = f"water_quality_heatmap:v2:{state or 'all_states'}:limit={limit}"
 
     # Try cache first
     if redis_client:

@@ -227,6 +227,7 @@ export interface WaterQualityHeatmapPoint {
   intensity: number;
   station_name: string;
   state: string;
+  district?: string;
   station_code: string;
   wqi: number;
   parameters: Record<string, number>;
@@ -294,4 +295,149 @@ export interface ExploitationDistrictData {
   extraction_ham: number;
   exploitation_pct: number;
   category: ExploitationCategory;
+}
+
+// ── Yearly AQI Forecast ─────────────────────────────────────
+export interface DailyAQIPoint {
+  date: string;        // "2025-04-01"
+  avg_aqi: number;
+  min_aqi: number;
+  max_aqi: number;
+}
+
+export interface ForecastDailyPoint {
+  date: string;        // "2026-04-01"
+  predicted: number;
+  lower: number;
+  upper: number;
+}
+
+export interface MonthlySummary {
+  month: string;       // "2025-04"
+  avg_aqi: number;
+  category: AQICategory;
+  is_forecast: boolean;
+}
+
+export interface YearlyForecastResponse {
+  station_id: string;
+  station_name: string;
+  city: string;
+  historical: DailyAQIPoint[];
+  forecast: ForecastDailyPoint[];
+  monthly_summary: MonthlySummary[];
+}
+
+// ── Noise Monitoring ────────────────────────────────────────
+export interface NoiseStation {
+  station_id: string;
+  station_name: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  zone: string;          // "industrial" | "commercial" | "residential" | "silence"
+  leq: number;           // Current Leq dB(A)
+  lmax: number;          // Current Lmax dB(A)
+  lmin: number;          // Current Lmin dB(A)
+  day_limit: number;
+  night_limit: number;
+  active_limit: number;  // Currently applicable limit
+  is_exceedance: boolean;
+  exceedance_db: number;
+  period: string;        // "day" | "night"
+  timestamp: string;
+}
+
+export interface NoiseLiveResponse {
+  total_stations: number;
+  period: string;
+  exceedance_count: number;
+  compliant_count: number;
+  stations: NoiseStation[];
+  last_updated: string;
+}
+
+export interface NoiseHistoricalPoint {
+  hour: string;
+  day_limit: number;
+  night_limit: number;
+  Leq_avg?: number;
+  Leq_max?: number;
+  Leq_min?: number;
+  Lmax_avg?: number;
+  Lmin_avg?: number;
+  exceedances?: number;
+}
+
+export interface NoiseHistoricalResponse {
+  station_id: string;
+  hours: number;
+  data: NoiseHistoricalPoint[];
+  data_points: number;
+}
+
+// Noise compliance color scheme
+export function getNoiseComplianceColor(leq: number, limit: number): string {
+  const diff = leq - limit;
+  if (diff > 0) return "#dc2626";      // Red — exceeding limit
+  if (diff > -5) return "#eab308";     // Yellow — within 5 dB of limit
+  return "#16a34a";                     // Green — well below limit
+}
+
+export function getNoiseComplianceLabel(leq: number, limit: number): string {
+  const diff = leq - limit;
+  if (diff > 0) return "Non-Compliant";
+  if (diff > -5) return "Warning";
+  return "Compliant";
+}
+
+export const ZONE_DISPLAY: Record<string, { label: string; color: string }> = {
+  industrial:  { label: "Industrial",  color: "#f97316" },
+  commercial:  { label: "Commercial",  color: "#3b82f6" },
+  residential: { label: "Residential", color: "#22c55e" },
+  silence:     { label: "Silence",     color: "#8b5cf6" },
+};
+
+// ── District-wise Noise Pollution Data ─────────────────────
+export interface DistrictNoiseData {
+  district_id: string;
+  state: string;
+  district: string;
+  city_town: string;
+  zone_type: string;           // "Industrial" | "Commercial" | "Residential" | "Silence"
+  latitude: number;
+  longitude: number;
+  lday_dba: number;            // Day-time noise level dB(A)
+  lnight_dba: number;          // Night-time noise level dB(A)
+  leq_24hr_dba: number;        // 24-hour equivalent noise level dB(A)
+  lden_dba: number;            // Day-evening-night weighted level dB(A)
+  lmax_dba: number;            // Maximum noise level dB(A)
+  std_day_db: number;          // CPCB standard day limit dB
+  std_night_db: number;        // CPCB standard night limit dB
+  exceed_day_db: number;       // Exceedance above day standard dB
+  exceed_night_db: number;     // Exceedance above night standard dB
+  compliance_day: string;      // "Compliant" | "Violation" | "Marginal"
+  compliance_night: string;    // "Compliant" | "Violation" | "Marginal"
+  risk_level: string;          // "Low" | "Moderate" | "High" | "Critical"
+  primary_noise_source: string;
+  data_source: string;
+  year: number | null;
+  notes: string | null;
+}
+
+export const RISK_LEVEL_COLORS: Record<string, string> = {
+  Critical: "#7f1d1d",
+  High:     "#dc2626",
+  Moderate: "#eab308",
+  Low:      "#16a34a",
+};
+
+export const COMPLIANCE_COLORS: Record<string, string> = {
+  Violation: "#dc2626",
+  Marginal:  "#eab308",
+  Compliant: "#16a34a",
+};
+
+export function getDistrictNoiseMarkerColor(d: DistrictNoiseData): string {
+  return RISK_LEVEL_COLORS[d.risk_level] || "#6b7280";
 }

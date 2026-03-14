@@ -14,6 +14,7 @@ export interface HeatmapPoint {
   intensity: number;
   station_name?: string;
   state?: string;
+  district?: string;
   parameters?: Record<string, number>;
 }
 
@@ -68,37 +69,47 @@ function intensityToColor(
 /**
  * Build an HTML tooltip string for a station point.
  */
+/**
+ * Get the WQI category label for a given intensity value.
+ */
+function getWQICategory(intensity: number): string {
+  if (intensity <= 0.15) return "Excellent";
+  if (intensity <= 0.3) return "Good";
+  if (intensity <= 0.5) return "Fair";
+  if (intensity <= 0.7) return "Poor";
+  return "Very Poor";
+}
+
+/**
+ * Get the WQI badge color for a given intensity value.
+ */
+function getWQIBadgeColor(intensity: number): string {
+  if (intensity <= 0.15) return "#0571b0";
+  if (intensity <= 0.3) return "#92c5de";
+  if (intensity <= 0.5) return "#eab308";
+  if (intensity <= 0.7) return "#f4a582";
+  return "#ca0020";
+}
+
+/**
+ * Build an HTML tooltip string for a station point (hover).
+ */
 function buildTooltip(p: HeatmapPoint): string {
-  const wqiPct = (p.intensity * 100).toFixed(1);
-  const label =
-    p.intensity <= 0.15
-      ? "Excellent"
-      : p.intensity <= 0.3
-      ? "Good"
-      : p.intensity <= 0.5
-      ? "Fair"
-      : p.intensity <= 0.7
-      ? "Poor"
-      : "Very Poor";
+  const wqiRaw = p.intensity.toFixed(3);
+  const label = getWQICategory(p.intensity);
+  const badgeColor = getWQIBadgeColor(p.intensity);
 
   let html = `<div style="font-family:system-ui,sans-serif;font-size:12px;min-width:180px">`;
   html += `<div style="font-weight:700;font-size:13px;margin-bottom:4px">${p.station_name || "Unknown Station"}</div>`;
   if (p.state) {
-    html += `<div style="color:#666;margin-bottom:6px">${p.state}</div>`;
+    html += `<div style="color:#666;margin-bottom:2px">${p.state}</div>`;
+  }
+  if (p.district) {
+    html += `<div style="color:#888;font-size:11px;margin-bottom:6px">${p.district}</div>`;
   }
   html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`;
-  html += `<span style="font-weight:600">WQI: ${wqiPct}%</span>`;
-  html += `<span style="background:${
-    p.intensity <= 0.15
-      ? "#0571b0"
-      : p.intensity <= 0.3
-      ? "#92c5de"
-      : p.intensity <= 0.5
-      ? "#eab308"
-      : p.intensity <= 0.7
-      ? "#f4a582"
-      : "#ca0020"
-  };color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${label}</span>`;
+  html += `<span style="font-weight:600">WQI: ${wqiRaw} (${label})</span>`;
+  html += `<span style="background:${badgeColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${label}</span>`;
   html += `</div>`;
 
   // Show top parameters (up to 6)
@@ -108,6 +119,44 @@ function buildTooltip(p: HeatmapPoint): string {
     for (const [name, val] of entries) {
       html += `<div style="display:flex;justify-content:space-between;padding:1px 0;font-size:11px">`;
       html += `<span style="color:#666">${name}</span>`;
+      html += `<span style="font-weight:500">${val}</span>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+/**
+ * Build an HTML popup string for a station point (click — persistent).
+ */
+function buildPopup(p: HeatmapPoint): string {
+  const wqiRaw = p.intensity.toFixed(3);
+  const label = getWQICategory(p.intensity);
+  const badgeColor = getWQIBadgeColor(p.intensity);
+
+  let html = `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:220px;max-width:300px">`;
+  html += `<div style="font-weight:700;font-size:14px;margin-bottom:4px">${p.station_name || "Unknown Station"}</div>`;
+  if (p.state) {
+    html += `<div style="color:#555;margin-bottom:2px">${p.state}</div>`;
+  }
+  if (p.district) {
+    html += `<div style="color:#777;font-size:12px;margin-bottom:6px">${p.district}</div>`;
+  }
+  html += `<div style="display:inline-block;background:${badgeColor};color:#fff;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;margin-bottom:8px">`;
+  html += `WQI: ${wqiRaw} — ${label}`;
+  html += `</div>`;
+
+  // Show ALL parameters
+  if (p.parameters && Object.keys(p.parameters).length > 0) {
+    html += `<div style="border-top:1px solid #e5e7eb;padding-top:6px;margin-top:4px">`;
+    html += `<div style="font-weight:600;font-size:11px;color:#555;margin-bottom:4px">Water Quality Parameters</div>`;
+    const entries = Object.entries(p.parameters);
+    for (const [name, val] of entries) {
+      html += `<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:12px">`;
+      html += `<span style="color:#555">${name}</span>`;
       html += `<span style="font-weight:500">${val}</span>`;
       html += `</div>`;
     }
@@ -176,6 +225,12 @@ function CircleMarkerLayer({
         sticky: false,
       });
 
+      // Popup on click (persistent, shows full details)
+      marker.bindPopup(buildPopup(p), {
+        maxWidth: 320,
+        className: "wqi-popup",
+      });
+
       // Hover highlight
       marker.on("mouseover", () => {
         marker.setStyle({
@@ -218,8 +273,6 @@ interface HeatmapWrapperProps {
   zoom?: number;
   className?: string;
   radius?: number;
-  blur?: number;
-  max?: number;
   gradient?: Record<number, string>;
 }
 

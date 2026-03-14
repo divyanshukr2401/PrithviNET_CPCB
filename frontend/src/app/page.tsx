@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { getLiveAir, getStations, getWaterQualityHeatmap, getGroundwaterLevel } from "@/lib/api";
-import type { AirReading, WaterQualityHeatmapPoint, GroundwaterCity } from "@/lib/types";
-import { getAQICategory } from "@/lib/types";
+import { getLiveAir, getStations, getWaterQualityHeatmap, getGroundwaterLevel, getNoiseLive } from "@/lib/api";
+import type { AirReading, WaterQualityHeatmapPoint, GroundwaterCity, NoiseStation, NoiseLiveResponse, DistrictNoiseData } from "@/lib/types";
+import { getAQICategory, getNoiseComplianceColor, getNoiseComplianceLabel, ZONE_DISPLAY, RISK_LEVEL_COLORS, COMPLIANCE_COLORS } from "@/lib/types";
 import { AQIMap } from "@/components/aqi-map";
+import { NoiseMap } from "@/components/noise-map";
+import { NoiseStationDetail } from "@/components/noise-station-detail";
+import { DistrictNoiseMap } from "@/components/district-noise-map";
+import { DistrictNoiseDetail } from "@/components/district-noise-detail";
 import { WaterQualityMap } from "@/components/water-quality-map";
 import {
   GroundwaterExploitationMap,
 } from "@/components/groundwater-exploitation-map";
+import districtNoiseRaw from "@/lib/data/district_noise_data.json";
 import {
   StatsCards,
   AQICategoryBadges,
@@ -86,6 +91,23 @@ export default function DashboardPage() {
   const [gwSelected, setGwSelected] = useState<GroundwaterCity | null>(null);
   const [gwDropdownOpen, setGwDropdownOpen] = useState(false);
 
+  // Noise monitoring state
+  const [noiseStations, setNoiseStations] = useState<NoiseStation[]>([]);
+  const [noiseLoading, setNoiseLoading] = useState(false);
+  const [noiseError, setNoiseError] = useState<string | null>(null);
+  const [noiseFetched, setNoiseFetched] = useState(false);
+  const [noisePeriod, setNoisePeriod] = useState<string>("day");
+  const [noiseExceedanceCount, setNoiseExceedanceCount] = useState(0);
+  const [noiseCompliantCount, setNoiseCompliantCount] = useState(0);
+  const [noiseLastUpdated, setNoiseLastUpdated] = useState<string | null>(null);
+  const [selectedNoiseStation, setSelectedNoiseStation] = useState<string | null>(null);
+
+  // Noise sub-view toggle: "live" (70 NANMN) vs "district" (285 districts)
+  type NoiseSubView = "live" | "district";
+  const [noiseSubView, setNoiseSubView] = useState<NoiseSubView>("district");
+  const districtNoiseData: DistrictNoiseData[] = districtNoiseRaw as DistrictNoiseData[];
+  const [selectedDistrictNoise, setSelectedDistrictNoise] = useState<string | null>(null);
+
   // Fetch station metadata (names, states) once
   useEffect(() => {
     getStations()
@@ -156,9 +178,32 @@ export default function DashboardPage() {
           setGwCities(data.cities);
           setGwLoaded(true);
         })
-        .catch(() => {});
+      .catch((err) => { console.warn("Groundwater level fetch failed:", err); });
     }
   }, [activeLayer, gwLoaded]);
+
+  // Fetch noise live data when tab first opened
+  useEffect(() => {
+    if (activeLayer === "noise" && !noiseFetched && !noiseLoading) {
+      setNoiseLoading(true);
+      getNoiseLive()
+        .then((data: NoiseLiveResponse) => {
+          setNoiseStations(data.stations);
+          setNoisePeriod(data.period);
+          setNoiseExceedanceCount(data.exceedance_count);
+          setNoiseCompliantCount(data.compliant_count);
+          setNoiseLastUpdated(data.last_updated);
+          setNoiseFetched(true);
+          setNoiseError(null);
+        })
+        .catch((err) => {
+          setNoiseError(
+            err instanceof Error ? err.message : "Failed to fetch noise data"
+          );
+        })
+        .finally(() => setNoiseLoading(false));
+    }
+  }, [activeLayer, noiseFetched, noiseLoading]);
 
   // Client-side filter for groundwater city dropdown
   const gwFiltered = useMemo(() => {
@@ -488,7 +533,7 @@ export default function DashboardPage() {
           ═══════════════════════════════════════════════════════ */}
       {activeLayer === "water" && (
         <>
-          {waterLoading && (
+          {waterLoading ? (
             <div className="flex items-center justify-center py-20">
               <div className="text-center">
                 <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3" style={{ color: "#0571b0" }} />
@@ -500,9 +545,7 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
-          )}
-
-          {waterError && (
+          ) : waterError ? (
             <div className="flex items-center justify-center py-20">
               <div className="text-center bg-card p-8 rounded-lg border border-border max-w-md">
                 <p className="text-destructive font-medium mb-2">
@@ -523,12 +566,10 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
-          )}
-
-          {waterFetched && !waterError && (
+          ) : waterFetched ? (
             <>
-              {/* Water quality stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Water quality stats — 5 categories matching legend */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="bg-card rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground mb-1">
                     Monitoring Stations
@@ -539,30 +580,42 @@ export default function DashboardPage() {
                 </div>
                 <div className="bg-card rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground mb-1">
-                    Excellent Quality
+                    Excellent (WQI ≤0.15)
                   </div>
-                  <div className="text-2xl font-bold text-green-700">
+                  <div className="text-2xl font-bold" style={{ color: "#0571b0" }}>
                     {waterPoints.filter((p) => p.wqi <= 0.15).length}
                   </div>
                 </div>
                 <div className="bg-card rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground mb-1">
-                    Fair Quality
+                    Good (0.15–0.3)
                   </div>
-                  <div className="text-2xl font-bold text-yellow-600">
-                    {
-                      waterPoints.filter(
-                        (p) => p.wqi > 0.15 && p.wqi <= 0.5
-                      ).length
-                    }
+                  <div className="text-2xl font-bold" style={{ color: "#92c5de" }}>
+                    {waterPoints.filter((p) => p.wqi > 0.15 && p.wqi <= 0.3).length}
                   </div>
                 </div>
                 <div className="bg-card rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground mb-1">
-                    Poor Quality
+                    Fair (0.3–0.5)
                   </div>
-                  <div className="text-2xl font-bold text-red-700">
-                    {waterPoints.filter((p) => p.wqi > 0.5).length}
+                  <div className="text-2xl font-bold" style={{ color: "#eab308" }}>
+                    {waterPoints.filter((p) => p.wqi > 0.3 && p.wqi <= 0.5).length}
+                  </div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-4">
+                  <div className="text-xs text-muted-foreground mb-1">
+                    Poor (0.5–0.7)
+                  </div>
+                  <div className="text-2xl font-bold" style={{ color: "#f4a582" }}>
+                    {waterPoints.filter((p) => p.wqi > 0.5 && p.wqi <= 0.7).length}
+                  </div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-4">
+                  <div className="text-xs text-muted-foreground mb-1">
+                    Very Poor ({">"}0.7)
+                  </div>
+                  <div className="text-2xl font-bold" style={{ color: "#ca0020" }}>
+                    {waterPoints.filter((p) => p.wqi > 0.7).length}
                   </div>
                 </div>
               </div>
@@ -854,40 +907,600 @@ export default function DashboardPage() {
                 </p>
               </div>
             </>
-          )}
+          ) : null}
         </>
       )}
 
       {/* ═══════════════════════════════════════════════════════
-          NOISE VIEW (Coming Soon)
+          NOISE VIEW
           ═══════════════════════════════════════════════════════ */}
       {activeLayer === "noise" && (
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center bg-card p-10 rounded-lg border border-border max-w-lg">
-            <Volume2
-              className="w-16 h-16 mx-auto mb-4"
-              style={{ color: "#8b5cf6" }}
-            />
-            <h2 className="text-xl font-bold mb-2">
-              Environmental Noise Monitoring
-            </h2>
-            <p className="text-muted-foreground text-sm mb-4">
-              CNOSSOS-EU compliant noise mapping with real-time decibel levels
-              from monitoring stations across India. This module is under
-              development.
-            </p>
-            <div
-              className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white"
-              style={{ backgroundColor: "#8b5cf6" }}
-            >
-              Coming Soon
+        <>
+          {/* Sub-toggle: Live Monitors vs District Snapshot */}
+          <div className="flex items-center gap-2">
+            <div className="bg-card rounded-lg border border-border p-1 flex gap-1">
+              <button
+                onClick={() => { setNoiseSubView("district"); setSelectedNoiseStation(null); }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  noiseSubView === "district"
+                    ? "bg-purple-600 text-white"
+                    : "text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                District Snapshot (285)
+              </button>
+              <button
+                onClick={() => { setNoiseSubView("live"); setSelectedDistrictNoise(null); }}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  noiseSubView === "live"
+                    ? "bg-purple-600 text-white"
+                    : "text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                Live Monitors (70)
+              </button>
             </div>
-            <p className="text-xs text-muted-foreground mt-4">
-              Backend endpoints are wired at /api/v1/noise — awaiting data
-              source integration
-            </p>
+            <span className="text-xs text-muted-foreground">
+              {noiseSubView === "district"
+                ? "CPCB/State PCB district-wise noise data across 35 states"
+                : "Real-time NANMN station monitoring across 7 cities"}
+            </span>
           </div>
-        </div>
+
+          {/* ─── DISTRICT SNAPSHOT SUB-VIEW ─── */}
+          {noiseSubView === "district" && (
+            <>
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="bg-card rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Districts Monitored</div>
+                  <div className="text-2xl font-bold">{districtNoiseData.length}</div>
+                  <div className="text-[10px] text-muted-foreground">Across 35 states/UTs</div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Critical Risk</div>
+                  <div className="text-2xl font-bold" style={{ color: RISK_LEVEL_COLORS.Critical }}>
+                    {districtNoiseData.filter((d) => d.risk_level === "Critical").length}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">Districts</div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground mb-1">High Risk</div>
+                  <div className="text-2xl font-bold" style={{ color: RISK_LEVEL_COLORS.High }}>
+                    {districtNoiseData.filter((d) => d.risk_level === "High").length}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">Districts</div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Day Violations</div>
+                  <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
+                    {districtNoiseData.filter((d) => d.compliance_day === "Violation").length}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    of {districtNoiseData.length} districts
+                  </div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Night Violations</div>
+                  <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
+                    {districtNoiseData.filter((d) => d.compliance_night === "Violation").length}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    of {districtNoiseData.length} districts
+                  </div>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Highest Leq 24hr</div>
+                  <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
+                    {Math.max(...districtNoiseData.map((d) => d.leq_24hr_dba)).toFixed(1)}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">dB(A)</div>
+                </div>
+              </div>
+
+              {/* Risk + Zone Distribution */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-card rounded-lg p-4 border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                    Risk Level Distribution
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    {(["Critical", "High", "Moderate", "Low"] as const).map((level) => {
+                      const count = districtNoiseData.filter((d) => d.risk_level === level).length;
+                      const pct = ((count / districtNoiseData.length) * 100).toFixed(0);
+                      return (
+                        <div
+                          key={level}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border"
+                        >
+                          <span
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: RISK_LEVEL_COLORS[level] }}
+                          />
+                          <div>
+                            <span className="text-sm font-medium">{level}</span>
+                            <span className="text-xs text-muted-foreground ml-1.5">
+                              {count} ({pct}%)
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="bg-card rounded-lg p-4 border border-border">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                    Zone Type Distribution
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    {Object.entries(ZONE_DISPLAY).map(([key, { label, color }]) => {
+                      const count = districtNoiseData.filter(
+                        (d) => d.zone_type.toLowerCase() === key
+                      ).length;
+                      const violations = districtNoiseData.filter(
+                        (d) =>
+                          d.zone_type.toLowerCase() === key &&
+                          d.compliance_day === "Violation"
+                      ).length;
+                      return (
+                        <div
+                          key={key}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border"
+                        >
+                          <span
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: color }}
+                          />
+                          <div>
+                            <span className="text-sm font-medium">{label}</span>
+                            <span className="text-xs text-muted-foreground ml-1.5">
+                              {count}
+                            </span>
+                            {violations > 0 && (
+                              <span className="text-xs ml-1.5" style={{ color: "#dc2626" }}>
+                                ({violations} violating)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Map + District Detail */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                <div className="lg:col-span-8 bg-card rounded-lg border border-border overflow-hidden">
+                  <div className="p-3 border-b border-border flex items-center justify-between">
+                    <h3 className="text-sm font-medium">District Noise Map</h3>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        {(["Critical", "High", "Moderate", "Low"] as const).map((level) => (
+                          <span key={level} className="flex items-center gap-1">
+                            <span
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: RISK_LEVEL_COLORS[level] }}
+                            />
+                            {level}
+                          </span>
+                        ))}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {districtNoiseData.length} districts
+                      </span>
+                    </div>
+                  </div>
+                  <DistrictNoiseMap
+                    districts={districtNoiseData}
+                    onDistrictClick={(id) =>
+                      setSelectedDistrictNoise(id === selectedDistrictNoise ? null : id)
+                    }
+                    selectedDistrictId={selectedDistrictNoise}
+                    center={[22.5, 80.0]}
+                    zoom={5}
+                    className="h-[550px]"
+                  />
+                </div>
+
+                <div className="lg:col-span-4 bg-card rounded-lg border border-border overflow-hidden flex flex-col">
+                  {selectedDistrictNoise &&
+                  districtNoiseData.find((d) => d.district_id === selectedDistrictNoise) ? (
+                    <DistrictNoiseDetail
+                      district={
+                        districtNoiseData.find(
+                          (d) => d.district_id === selectedDistrictNoise
+                        )!
+                      }
+                      onClose={() => setSelectedDistrictNoise(null)}
+                    />
+                  ) : (
+                    <>
+                      <div className="p-3 border-b border-border flex items-center justify-between">
+                        <h3 className="text-sm font-medium">Districts (by Leq 24hr)</h3>
+                        <span className="text-xs text-muted-foreground">
+                          Click a district for details
+                        </span>
+                      </div>
+                      <div className="overflow-y-auto" style={{ maxHeight: "510px" }}>
+                        {[...districtNoiseData]
+                          .sort((a, b) => b.leq_24hr_dba - a.leq_24hr_dba)
+                          .map((d) => {
+                            const riskCol = RISK_LEVEL_COLORS[d.risk_level] || "#6b7280";
+                            const zoneConf = ZONE_DISPLAY[d.zone_type.toLowerCase()] || {
+                              label: d.zone_type,
+                              color: "#6b7280",
+                            };
+                            return (
+                              <button
+                                key={d.district_id}
+                                onClick={() => setSelectedDistrictNoise(d.district_id)}
+                                className="w-full text-left px-3 py-2 border-b border-border hover:bg-muted/30 transition-colors flex items-center gap-2"
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: riskCol }}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-xs font-medium truncate">
+                                    {d.city_town}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground truncate">
+                                    {d.district}, {d.state} &middot;{" "}
+                                    <span style={{ color: zoneConf.color }}>
+                                      {zoneConf.label}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <div
+                                    className="text-sm font-bold"
+                                    style={{ color: riskCol }}
+                                  >
+                                    {d.leq_24hr_dba}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    dB(A)
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* CPCB Standards + Decibel Scale (shared) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="bg-card rounded-lg border border-border p-4">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                    CPCB Noise Standards (Ambient)
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2 px-2 text-xs font-medium text-muted-foreground">Zone</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-muted-foreground">Day Limit</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-muted-foreground">Night Limit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { zone: "Industrial", day: 75, night: 70 },
+                          { zone: "Commercial", day: 65, night: 55 },
+                          { zone: "Residential", day: 55, night: 45 },
+                          { zone: "Silence", day: 50, night: 40 },
+                        ].map((row) => {
+                          const zoneKey = row.zone.toLowerCase();
+                          const zoneConf = ZONE_DISPLAY[zoneKey] || { color: "#6b7280" };
+                          return (
+                            <tr key={row.zone} className="border-b border-border/50">
+                              <td className="py-2 px-2 flex items-center gap-1.5">
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full"
+                                  style={{ backgroundColor: zoneConf.color }}
+                                />
+                                <span className="font-medium text-xs">{row.zone}</span>
+                              </td>
+                              <td className="py-2 px-2 text-center text-xs">{row.day} dB(A)</td>
+                              <td className="py-2 px-2 text-center text-xs">{row.night} dB(A)</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Day: 6:00 AM – 10:00 PM &nbsp;|&nbsp; Night: 10:00 PM – 6:00 AM
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Source: CPCB Noise Pollution (Regulation and Control) Rules, 2000
+                  </p>
+                </div>
+                <div className="bg-card rounded-lg border border-border p-4">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                    Decibel Scale Reference
+                  </h3>
+                  <div className="space-y-1.5">
+                    {[
+                      { db: 30, label: "Whisper", color: "#16a34a" },
+                      { db: 40, label: "Library", color: "#16a34a" },
+                      { db: 50, label: "Moderate rainfall", color: "#22c55e" },
+                      { db: 60, label: "Normal conversation", color: "#eab308" },
+                      { db: 70, label: "Vacuum cleaner", color: "#f97316" },
+                      { db: 80, label: "Heavy traffic", color: "#ef4444" },
+                      { db: 90, label: "Lawn mower", color: "#dc2626" },
+                      { db: 100, label: "Motorcycle", color: "#dc2626" },
+                      { db: 110, label: "Rock concert", color: "#991b1b" },
+                      { db: 120, label: "Jet engine (nearby)", color: "#7f1d1d" },
+                    ].map((item) => (
+                      <div key={item.db} className="flex items-center gap-2">
+                        <div
+                          className="h-3 rounded-sm"
+                          style={{
+                            width: `${Math.max(10, (item.db / 120) * 100)}%`,
+                            backgroundColor: item.color,
+                            opacity: 0.7,
+                          }}
+                        />
+                        <span className="text-xs font-medium whitespace-nowrap">
+                          {item.db} dB
+                        </span>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {item.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-3">
+                    Prolonged exposure above 85 dB(A) can cause hearing damage.
+                    CPCB ambient standards apply to area-wide noise, not point-source.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground text-right">
+                Sources: CPCB NANMN | MPCB 2024 | UNEP Frontiers 2022 | State PCBs | Peer-reviewed Research
+              </p>
+            </>
+          )}
+
+          {/* ─── LIVE MONITORS SUB-VIEW ─── */}
+          {noiseSubView === "live" && (
+            <>
+              {noiseLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="text-center">
+                    <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
+                    <p className="text-muted-foreground">
+                      Loading noise monitoring data...
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Fetching 70 NANMN stations across 7 cities
+                    </p>
+                  </div>
+                </div>
+              ) : noiseError ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="text-center bg-card p-8 rounded-lg border border-border max-w-md">
+                    <p className="text-destructive font-medium mb-2">
+                      Failed to Load Noise Data
+                    </p>
+                    <p className="text-muted-foreground text-sm mb-4">
+                      {noiseError}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setNoiseFetched(false);
+                        setNoiseError(null);
+                      }}
+                      className="px-4 py-2 rounded-lg text-sm text-white transition-colors"
+                      style={{ backgroundColor: "#8b5cf6" }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Stats Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="bg-card rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted-foreground mb-1">Active Monitors</div>
+                      <div className="text-2xl font-bold">{noiseStations.length}</div>
+                      <div className="text-[10px] text-muted-foreground">NANMN Stations</div>
+                    </div>
+                    <div className="bg-card rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted-foreground mb-1">Highest Noise</div>
+                      <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
+                        {noiseStations.length > 0
+                          ? Math.max(...noiseStations.map((s) => s.leq)).toFixed(1)
+                          : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">dB(A) Leq</div>
+                    </div>
+                    <div className="bg-card rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted-foreground mb-1">Exceedances</div>
+                      <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
+                        {noiseExceedanceCount}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">Above CPCB limit</div>
+                    </div>
+                    <div className="bg-card rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted-foreground mb-1">Compliant</div>
+                      <div className="text-2xl font-bold" style={{ color: "#16a34a" }}>
+                        {noiseCompliantCount}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">Within limits</div>
+                    </div>
+                    <div className="bg-card rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted-foreground mb-1">Period</div>
+                      <div className="text-2xl font-bold capitalize">{noisePeriod}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {noisePeriod === "night" ? "10 PM – 6 AM" : "6 AM – 10 PM"}
+                      </div>
+                    </div>
+                    <div className="bg-card rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted-foreground mb-1">Avg Noise</div>
+                      <div className="text-2xl font-bold">
+                        {noiseStations.length > 0
+                          ? (
+                              noiseStations.reduce((sum, s) => sum + s.leq, 0) /
+                              noiseStations.length
+                            ).toFixed(1)
+                          : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">dB(A) across all</div>
+                    </div>
+                  </div>
+
+                  {/* Zone Distribution */}
+                  <div className="bg-card rounded-lg p-4 border border-border">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                      Station Distribution by Zone
+                    </h3>
+                    <div className="flex flex-wrap gap-3">
+                      {Object.entries(ZONE_DISPLAY).map(([key, { label, color }]) => {
+                        const count = noiseStations.filter((s) => s.zone === key).length;
+                        const exceedCount = noiseStations.filter(
+                          (s) => s.zone === key && s.is_exceedance
+                        ).length;
+                        return (
+                          <div
+                            key={key}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border"
+                          >
+                            <span
+                              className="w-3 h-3 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: color }}
+                            />
+                            <div>
+                              <span className="text-sm font-medium">{label}</span>
+                              <span className="text-xs text-muted-foreground ml-1.5">
+                                {count} stations
+                              </span>
+                              {exceedCount > 0 && (
+                                <span className="text-xs ml-1.5" style={{ color: "#dc2626" }}>
+                                  ({exceedCount} exceeding)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Map + Station Detail */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    <div className="lg:col-span-8 bg-card rounded-lg border border-border overflow-hidden">
+                      <div className="p-3 border-b border-border flex items-center justify-between">
+                        <h3 className="text-sm font-medium">Noise Monitoring Map</h3>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#16a34a" }} />
+                              Compliant
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#eab308" }} />
+                              Warning
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#dc2626" }} />
+                              Exceeding
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {noiseStations.length} stations
+                          </span>
+                        </div>
+                      </div>
+                      <NoiseMap
+                        stations={noiseStations}
+                        onStationClick={(id) =>
+                          setSelectedNoiseStation(id === selectedNoiseStation ? null : id)
+                        }
+                        selectedStationId={selectedNoiseStation}
+                        center={[22.5, 80.0]}
+                        zoom={5}
+                        className="h-[550px]"
+                      />
+                    </div>
+
+                    <div className="lg:col-span-4 bg-card rounded-lg border border-border overflow-hidden flex flex-col">
+                      {selectedNoiseStation && noiseStations.find((s) => s.station_id === selectedNoiseStation) ? (
+                        <NoiseStationDetail
+                          station={noiseStations.find((s) => s.station_id === selectedNoiseStation)!}
+                          onClose={() => setSelectedNoiseStation(null)}
+                        />
+                      ) : (
+                        <>
+                          <div className="p-3 border-b border-border flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Stations (by noise level)</h3>
+                            <span className="text-xs text-muted-foreground">
+                              Click a station for details
+                            </span>
+                          </div>
+                          <div className="overflow-y-auto" style={{ maxHeight: "510px" }}>
+                            {[...noiseStations]
+                              .sort((a, b) => b.leq - a.leq)
+                              .map((station) => {
+                                const color = getNoiseComplianceColor(station.leq, station.active_limit);
+                                const zone = ZONE_DISPLAY[station.zone] || {
+                                  label: station.zone,
+                                  color: "#6b7280",
+                                };
+                                return (
+                                  <button
+                                    key={station.station_id}
+                                    onClick={() => setSelectedNoiseStation(station.station_id)}
+                                    className="w-full text-left px-3 py-2 border-b border-border hover:bg-muted/30 transition-colors flex items-center gap-2"
+                                  >
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-xs font-medium truncate">
+                                        {station.station_name}
+                                      </div>
+                                      <div className="text-[10px] text-muted-foreground truncate">
+                                        {station.city} &middot;{" "}
+                                        <span style={{ color: zone.color }}>{zone.label}</span>
+                                      </div>
+                                    </div>
+                                    <div className="text-right flex-shrink-0">
+                                      <div className="text-sm font-bold" style={{ color }}>
+                                        {station.leq}
+                                      </div>
+                                      <div className="text-[10px] text-muted-foreground">
+                                        dB(A)
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Last updated */}
+                  {noiseLastUpdated && (
+                    <p className="text-xs text-muted-foreground text-right">
+                      Data as of {new Date(noiseLastUpdated).toLocaleString()}
+                    </p>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   );

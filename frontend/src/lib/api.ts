@@ -29,6 +29,7 @@ import type {
   Factory,
   WaterQualityHeatmapResponse,
   GroundwaterResponse,
+  YearlyForecastResponse,
 } from "./types";
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -260,4 +261,34 @@ export async function getGroundwaterLevel(params?: {
   if (params?.city) sp.set("city", params.city);
   const qs = sp.toString();
   return fetchAPI(`/api/v1/water/groundwater-level${qs ? `?${qs}` : ""}`);
+}
+
+// ── Yearly AQI Forecast ──────────────────────────────────
+export async function getYearlyForecast(stationId: string): Promise<YearlyForecastResponse> {
+  return fetchAPI(`/api/v1/forecast/yearly-profile?station_id=${encodeURIComponent(stationId)}`);
+}
+
+// ── Noise Monitoring ─────────────────────────────────────
+import type { NoiseLiveResponse, NoiseHistoricalResponse } from "./types";
+
+export async function getNoiseLive(): Promise<NoiseLiveResponse> {
+  return fetchAPI("/api/v1/noise/live");
+}
+
+export async function getNoiseHistorical(
+  stationId: string,
+  hours: number = 24
+): Promise<NoiseHistoricalResponse> {
+  return fetchAPI(
+    `/api/v1/noise/historical/${encodeURIComponent(stationId)}?hours=${hours}`
+  );
+}
+
+export async function getNoiseStandards(): Promise<{
+  standards: Record<string, { day_limit: number; night_limit: number; unit: string }>;
+  day_hours: string;
+  night_hours: string;
+  reference: string;
+}> {
+  return fetchAPI("/api/v1/noise/standards");
 }

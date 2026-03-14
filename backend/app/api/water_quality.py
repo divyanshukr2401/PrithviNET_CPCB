@@ -89,19 +89,19 @@ async def get_water_station_data(station_id: str):
         if p not in latest or r["timestamp"] > latest[p]["timestamp"]:
             latest[p] = r
 
-    # Average WQI
-    wqi_values = [v.get("wqi", 50) for v in latest.values()]
-    avg_wqi = round(sum(wqi_values) / max(1, len(wqi_values)), 1)
+    # Average WQI (0-1 scale: 0 = excellent, 1 = very poor)
+    wqi_values = [v.get("wqi", 0.5) for v in latest.values()]
+    avg_wqi = round(sum(wqi_values) / max(1, len(wqi_values)), 4)
 
     wqi_category = (
         "Excellent"
-        if avg_wqi >= 80
+        if avg_wqi <= 0.15
         else "Good"
-        if avg_wqi >= 60
+        if avg_wqi <= 0.3
         else "Fair"
-        if avg_wqi >= 40
+        if avg_wqi <= 0.5
         else "Poor"
-        if avg_wqi >= 20
+        if avg_wqi <= 0.7
         else "Very Poor"
     )
 
@@ -136,8 +136,14 @@ async def get_river_data(
     """Get water quality data grouped by river."""
     try:
         client = ch_writer._get_client()
-        river_filter = f"AND river_name = '{river}'" if river else ""
-        result = client.query(f"""
+        if river:
+            river_filter = "AND river_name = {river_name:String}"
+            query_params = {"river_name": river}
+        else:
+            river_filter = ""
+            query_params = {}
+        result = client.query(
+            f"""
             SELECT river_name, parameter,
                    avg(value) AS avg_value,
                    min(value) AS min_value,
@@ -149,7 +155,9 @@ async def get_river_data(
               {river_filter}
             GROUP BY river_name, parameter
             ORDER BY river_name, parameter
-        """)
+        """,
+            parameters=query_params,
+        )
         columns = result.column_names
         rows = [dict(zip(columns, row)) for row in result.result_rows]
     except Exception:
@@ -243,8 +251,14 @@ async def get_water_quality_index(
     """Get Water Quality Index summary for CG stations."""
     try:
         client = ch_writer._get_client()
-        city_filter = f"AND city = '{city}'" if city else ""
-        result = client.query(f"""
+        if city:
+            city_filter = "AND city = {city_name:String}"
+            query_params = {"city_name": city}
+        else:
+            city_filter = ""
+            query_params = {}
+        result = client.query(
+            f"""
             SELECT station_id, city, river_name,
                    avg(wqi) AS avg_wqi,
                    min(wqi) AS min_wqi,
@@ -254,7 +268,9 @@ async def get_water_quality_index(
               {city_filter}
             GROUP BY station_id, city, river_name
             ORDER BY avg_wqi ASC
-        """)
+        """,
+            parameters=query_params,
+        )
         columns = result.column_names
         rows = [dict(zip(columns, row)) for row in result.result_rows]
     except Exception:

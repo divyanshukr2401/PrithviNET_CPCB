@@ -20,7 +20,7 @@ const HeatmapWrapper = dynamic(() => import("./heatmap-wrapper"), {
 const WATER_QUALITY_GRADIENT: Record<number, string> = {
   0.0: "#0571b0",    // Deep blue — excellent (WQI near 0)
   0.15: "#92c5de",   // Light blue — good
-  0.3: "#f7f056",    // Yellow — fair
+  0.3: "#eab308",    // Amber — fair
   0.5: "#f4a582",    // Orange — poor
   0.7: "#ca0020",    // Red — very poor
   1.0: "#7f0000",    // Dark red — extreme
