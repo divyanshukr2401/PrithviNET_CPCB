@@ -7,6 +7,7 @@ from datetime import datetime
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 from app.services.ingestion.water_quality_fetcher import fetch_water_quality_cached
+from app.services.ingestion.groundwater_fetcher import fetch_groundwater_cached
 from app.core.redis import get_redis
 
 router = APIRouter()
@@ -198,6 +199,39 @@ async def get_water_quality_heatmap(
         "total_points": len(points),
         "filter": {"state": state, "limit": limit},
         "points": points,
+    }
+
+
+@router.get("/groundwater-level")
+async def get_groundwater_level(
+    city: Optional[str] = Query(
+        None, description="Filter by city name (case-insensitive partial match)"
+    ),
+):
+    """
+    Get groundwater level data for 50 major Indian cities from CGWB 2018 survey.
+    Returns depth-to-water-level ranges, well distribution across depth bands,
+    and a qualitative classification (Adequate/Moderate/Low/Critical).
+    Source: data.gov.in Ministry of Jal Shakti.
+    """
+    try:
+        redis = await get_redis()
+    except Exception:
+        redis = None
+
+    all_cities = await fetch_groundwater_cached(redis_client=redis)
+
+    if city:
+        q = city.lower().strip()
+        filtered = [c for c in all_cities if q in c["city"].lower()]
+    else:
+        filtered = all_cities
+
+    return {
+        "source": "data.gov.in CGWB Urban Groundwater Level 2018",
+        "total_cities": len(filtered),
+        "filter": {"city": city},
+        "cities": filtered,
     }
 
 

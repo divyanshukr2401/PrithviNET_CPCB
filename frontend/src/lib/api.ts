@@ -1,7 +1,7 @@
 // PRITHVINET API Client
 // Maps backend responses to frontend types
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003";
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -28,6 +28,7 @@ import type {
   LeaderboardEntry,
   Factory,
   WaterQualityHeatmapResponse,
+  GroundwaterResponse,
 } from "./types";
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -249,4 +250,14 @@ export async function getWaterQualityHeatmap(params?: {
   if (params?.state) sp.set("state", params.state);
   const qs = sp.toString();
   return fetchAPI(`/api/v1/water/quality-heatmap${qs ? `?${qs}` : ""}`);
+}
+
+// ── Groundwater Level ─────────────────────────────────────
+export async function getGroundwaterLevel(params?: {
+  city?: string;
+}): Promise<GroundwaterResponse> {
+  const sp = new URLSearchParams();
+  if (params?.city) sp.set("city", params.city);
+  const qs = sp.toString();
+  return fetchAPI(`/api/v1/water/groundwater-level${qs ? `?${qs}` : ""}`);
 }

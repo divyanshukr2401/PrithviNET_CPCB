@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { getLiveAir, getStations, getWaterQualityHeatmap } from "@/lib/api";
-import type { AirReading, WaterQualityHeatmapPoint } from "@/lib/types";
+import { getLiveAir, getStations, getWaterQualityHeatmap, getGroundwaterLevel } from "@/lib/api";
+import type { AirReading, WaterQualityHeatmapPoint, GroundwaterCity } from "@/lib/types";
 import { getAQICategory } from "@/lib/types";
 import { AQIMap } from "@/components/aqi-map";
 import { WaterQualityMap } from "@/components/water-quality-map";
@@ -76,6 +76,13 @@ export default function DashboardPage() {
   const [waterError, setWaterError] = useState<string | null>(null);
   const [waterFetched, setWaterFetched] = useState(false);
 
+  // Groundwater level search state
+  const [gwCities, setGwCities] = useState<GroundwaterCity[]>([]);
+  const [gwLoaded, setGwLoaded] = useState(false);
+  const [gwQuery, setGwQuery] = useState("");
+  const [gwSelected, setGwSelected] = useState<GroundwaterCity | null>(null);
+  const [gwDropdownOpen, setGwDropdownOpen] = useState(false);
+
   // Fetch station metadata (names, states) once
   useEffect(() => {
     getStations()
@@ -137,6 +144,25 @@ export default function DashboardPage() {
         .finally(() => setWaterLoading(false));
     }
   }, [activeLayer, waterFetched, waterLoading]);
+
+  // Fetch groundwater city data when water tab first opened
+  useEffect(() => {
+    if (activeLayer === "water" && !gwLoaded) {
+      getGroundwaterLevel()
+        .then((data) => {
+          setGwCities(data.cities);
+          setGwLoaded(true);
+        })
+        .catch(() => {});
+    }
+  }, [activeLayer, gwLoaded]);
+
+  // Client-side filter for groundwater city dropdown
+  const gwFiltered = useMemo(() => {
+    if (!gwQuery.trim()) return [];
+    const q = gwQuery.toLowerCase().trim();
+    return gwCities.filter((c) => c.city.toLowerCase().includes(q)).slice(0, 8);
+  }, [gwCities, gwQuery]);
 
   // Filter readings based on search query and state
   const filteredReadings = useMemo(() => {
@@ -536,6 +562,166 @@ export default function DashboardPage() {
                     {waterPoints.filter((p) => p.wqi > 0.5).length}
                   </div>
                 </div>
+              </div>
+
+              {/* ── Groundwater Level Search ── */}
+              <div className="bg-card rounded-lg border border-border p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Droplets className="w-4 h-4" style={{ color: "#0571b0" }} />
+                  <h3 className="text-sm font-medium">
+                    Groundwater Level Lookup
+                  </h3>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    50 major cities | CGWB 2018
+                  </span>
+                </div>
+
+                {/* Search input */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search city for groundwater level (e.g. Delhi, Chennai, Jaipur)..."
+                    value={gwQuery}
+                    onChange={(e) => {
+                      setGwQuery(e.target.value);
+                      setGwDropdownOpen(true);
+                      if (!e.target.value.trim()) setGwSelected(null);
+                    }}
+                    onFocus={() => {
+                      if (gwQuery.trim()) setGwDropdownOpen(true);
+                    }}
+                    className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#0571b0]"
+                  />
+
+                  {/* Dropdown suggestions */}
+                  {gwDropdownOpen && gwFiltered.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden max-h-60 overflow-y-auto">
+                      {gwFiltered.map((city) => (
+                        <button
+                          key={city.city}
+                          onClick={() => {
+                            setGwSelected(city);
+                            setGwQuery(city.city);
+                            setGwDropdownOpen(false);
+                          }}
+                          className="flex items-center justify-between w-full px-4 py-2.5 text-left hover:bg-muted/50 transition-colors text-sm border-b border-border last:border-b-0"
+                        >
+                          <span className="font-medium">{city.city}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {city.depth_min_mbgl ?? "?"} – {city.depth_max_mbgl ?? "?"} m
+                            </span>
+                            <span
+                              className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
+                              style={{ backgroundColor: city.classification.color }}
+                            >
+                              {city.classification.level}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {gwDropdownOpen && gwQuery.trim() && gwFiltered.length === 0 && gwLoaded && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 p-3">
+                      <p className="text-sm text-muted-foreground text-center">
+                        No cities found matching &quot;{gwQuery}&quot;
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Close dropdown on outside click */}
+                {gwDropdownOpen && (
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setGwDropdownOpen(false)}
+                  />
+                )}
+
+                {/* Selected city result card */}
+                {gwSelected && (
+                  <div className="mt-4 rounded-lg border-2 p-4" style={{ borderColor: gwSelected.classification.color + "40" }}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-lg font-bold">{gwSelected.city}</h4>
+                        <p className="text-xs text-muted-foreground">
+                          {gwSelected.wells_analysed} wells analysed | Depth:{" "}
+                          {gwSelected.depth_min_mbgl ?? "N/A"} – {gwSelected.depth_max_mbgl ?? "N/A"} m below ground
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span
+                          className="inline-block px-3 py-1 rounded-full text-sm font-bold text-white"
+                          style={{ backgroundColor: gwSelected.classification.color }}
+                        >
+                          {gwSelected.classification.level}
+                        </span>
+                        <p className="text-xs mt-1 font-medium" style={{ color: gwSelected.classification.color }}>
+                          Avg. {gwSelected.avg_depth_mbgl} m depth
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mb-3">
+                      {gwSelected.classification.description}
+                    </p>
+
+                    {/* Depth band distribution bar */}
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground mb-1">
+                        Well Depth Distribution
+                      </div>
+                      {/* Stacked horizontal bar */}
+                      <div className="flex h-6 rounded-md overflow-hidden border border-border">
+                        {gwSelected.bands.map((band, i) => {
+                          if (band.percentage <= 0) return null;
+                          const colors = [
+                            "#0571b0", // 0-2m  — deep blue (excellent)
+                            "#48a9c5", // 2-5m  — teal
+                            "#92c5de", // 5-10m — light blue
+                            "#f7f056", // 10-20m — yellow
+                            "#f4a582", // 20-40m — orange
+                            "#ca0020", // >40m  — red (critical)
+                          ];
+                          return (
+                            <div
+                              key={band.range}
+                              className="flex items-center justify-center text-[10px] font-bold text-white transition-all"
+                              style={{
+                                width: `${band.percentage}%`,
+                                backgroundColor: colors[i],
+                                minWidth: band.percentage > 0 ? "18px" : "0",
+                              }}
+                              title={`${band.range}: ${band.count} wells (${band.percentage}%)`}
+                            >
+                              {band.percentage >= 8 ? `${band.percentage}%` : ""}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Band legend */}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                        {gwSelected.bands.map((band, i) => {
+                          const colors = ["#0571b0", "#48a9c5", "#92c5de", "#f7f056", "#f4a582", "#ca0020"];
+                          return (
+                            <div key={band.range} className="flex items-center gap-1 text-xs">
+                              <div
+                                className="w-2.5 h-2.5 rounded-sm"
+                                style={{ backgroundColor: colors[i] }}
+                              />
+                              <span className="text-muted-foreground">
+                                {band.range}: {band.count} wells ({band.percentage}%)
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Heatmap */}

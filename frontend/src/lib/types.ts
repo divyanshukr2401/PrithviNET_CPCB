@@ -238,3 +238,33 @@ export interface WaterQualityHeatmapResponse {
   filter: { state: string | null; limit: number };
   points: WaterQualityHeatmapPoint[];
 }
+
+// ── Groundwater Level ──────────────────────────────────────
+export interface GroundwaterBand {
+  range: string;
+  count: number;
+  percentage: number;
+}
+
+export interface GroundwaterClassification {
+  level: string;
+  color: string;
+  description: string;
+}
+
+export interface GroundwaterCity {
+  city: string;
+  wells_analysed: number;
+  depth_min_mbgl: number | null;
+  depth_max_mbgl: number | null;
+  avg_depth_mbgl: number;
+  bands: GroundwaterBand[];
+  classification: GroundwaterClassification;
+}
+
+export interface GroundwaterResponse {
+  source: string;
+  total_cities: number;
+  filter: { city: string | null };
+  cities: GroundwaterCity[];
+}
