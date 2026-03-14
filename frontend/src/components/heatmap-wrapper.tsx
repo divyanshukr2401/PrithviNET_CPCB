@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -183,8 +183,26 @@ interface CircleMarkerLayerProps {
 }
 
 /**
+ * Compute a cheap fingerprint of the points array so we can detect when the
+ * actual *data* changed, not just the array reference. This prevents the
+ * destroy-and-recreate cycle that causes hollow markers during HMR / parent
+ * re-renders where a new array reference is produced for the same data.
+ */
+function pointsFingerprint(pts: HeatmapPoint[]): string {
+  if (pts.length === 0) return "0";
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  return `${pts.length}|${first.lat},${first.lng},${first.intensity}|${last.lat},${last.lng},${last.intensity}`;
+}
+
+/**
  * Inner component: uses useMap() to create L.circleMarker for each point.
  * Markers are fixed pixel-size — no distortion on zoom.
+ *
+ * STABILITY: Uses a fingerprint ref to skip unnecessary full rebuilds when the
+ * parent re-renders with the same data but a new array reference (e.g. inline
+ * .map() or HMR).  Prevents Leaflet from briefly showing default-styled
+ * hollow blue circles during the destroy-recreate window.
  */
 function CircleMarkerLayer({
   points,
@@ -193,9 +211,26 @@ function CircleMarkerLayer({
 }: CircleMarkerLayerProps) {
   const map = useMap();
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const fingerprintRef = useRef<string>("");
+
+  // Memoize the fingerprint so the effect only fires on real data changes
+  const currentFingerprint = useMemo(
+    () => pointsFingerprint(points),
+    [points]
+  );
 
   useEffect(() => {
     if (!map) return;
+
+    // Skip full rebuild if the data hasn't actually changed and markers exist
+    if (
+      currentFingerprint === fingerprintRef.current &&
+      layerGroupRef.current &&
+      map.hasLayer(layerGroupRef.current)
+    ) {
+      return;
+    }
+    fingerprintRef.current = currentFingerprint;
 
     // Remove previous layer group
     if (layerGroupRef.current) {
@@ -206,10 +241,13 @@ function CircleMarkerLayer({
     const group = L.layerGroup();
 
     for (const p of points) {
-      const color = intensityToColor(p.intensity, gradient);
+      // Runtime guard: ensure intensity is always a finite number
+      const safeIntensity = Number.isFinite(p.intensity) ? p.intensity : 0;
+      const color = intensityToColor(safeIntensity, gradient);
 
       const marker = L.circleMarker([p.lat, p.lng], {
         radius: circleRadius,
+        fill: true,            // Explicit — never rely on Leaflet default
         fillColor: color,
         color: "#fff",
         weight: 1.5,
@@ -231,11 +269,14 @@ function CircleMarkerLayer({
         className: "wqi-popup",
       });
 
-      // Hover highlight
+      // Hover highlight — reset ALL style props (including fillColor) to
+      // prevent Leaflet state corruption during rapid re-renders
       marker.on("mouseover", () => {
         marker.setStyle({
           weight: 2.5,
           color: "#1e293b",
+          fill: true,
+          fillColor: color,
           fillOpacity: 1.0,
           radius: circleRadius + 2,
         });
@@ -245,6 +286,8 @@ function CircleMarkerLayer({
         marker.setStyle({
           weight: 1.5,
           color: "#fff",
+          fill: true,
+          fillColor: color,
           fillOpacity: 0.85,
           radius: circleRadius,
         });
@@ -262,7 +305,7 @@ function CircleMarkerLayer({
         layerGroupRef.current = null;
       }
     };
-  }, [map, points, circleRadius, gradient]);
+  }, [map, points, circleRadius, gradient, currentFingerprint]);
 
   return null;
 }

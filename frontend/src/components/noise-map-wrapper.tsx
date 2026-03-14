@@ -51,6 +51,7 @@ export default function NoiseMapWrapper({
             center={[station.latitude, station.longitude]}
             radius={isSelected ? 10 : 7}
             pathOptions={{
+              fill: true,
               color: isSelected ? "#1e293b" : "#fff",
               fillColor: color,
               fillOpacity: 0.9,

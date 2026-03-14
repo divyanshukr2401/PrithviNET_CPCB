@@ -58,6 +58,7 @@ export default function DistrictNoiseMapWrapper({
             center={[d.latitude, d.longitude]}
             radius={isSelected ? 10 : 6}
             pathOptions={{
+              fill: true,
               color: isSelected ? "#1e293b" : "#fff",
               fillColor: color,
               fillOpacity: 0.85,

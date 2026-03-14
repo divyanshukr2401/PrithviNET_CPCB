@@ -836,14 +836,7 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <WaterQualityMap
-                  points={waterPoints.map((p) => ({
-                    lat: p.lat,
-                    lng: p.lng,
-                    intensity: p.intensity,
-                    station_name: p.station_name,
-                    state: p.state,
-                    parameters: p.parameters,
-                  }))}
+                  points={waterPoints}
                   className="h-[550px]"
                 />
               </div>
