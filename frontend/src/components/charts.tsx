@@ -1,6 +1,7 @@
 "use client";
 
-import type { AirReading } from "@/lib/types";
+import { useState, useEffect } from "react";
+import type { AirReading, RealStationData } from "@/lib/types";
 import {
   getAQIColor,
   getAQICategory,
@@ -12,6 +13,7 @@ import {
   AQI_CATEGORIES_ORDERED,
 } from "@/lib/types";
 import type { AQICategory } from "@/lib/types";
+import { getRealStationData } from "@/lib/api";
 import {
   BarChart,
   Bar,
@@ -132,62 +134,170 @@ export function StationDetailPanel({
   stationName,
   onClose,
 }: StationDetailPanelProps) {
-  const aqiReading = readings.find(
-    (r) => r.station_id === stationId && r.parameter === "AQI"
-  );
-  const pollutantReadings = readings.filter(
-    (r) => r.station_id === stationId && r.parameter !== "AQI"
-  );
+  const [realData, setRealData] = useState<RealStationData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!aqiReading) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        No data for this station
-      </div>
+  // Fetch real data from data.gov.in when station changes
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setRealData(null);
+
+    getRealStationData(stationId)
+      .then((data) => {
+        if (!cancelled) {
+          setRealData(data);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stationId]);
+
+  // Determine data source: real API data or simulated fallback
+  const isReal = realData?.quality_flag === "real";
+  const dataSource = realData?.source || "historical_pattern_simulator";
+
+  // Use real data if available, otherwise fall back to existing readings
+  let aqiValue: number;
+  let aqiCity: string;
+  let aqiTimestamp: string;
+  let pollutantRows: Array<{ parameter: string; value: number; unit: string; aqi: number }>;
+  let apiStationName: string | null = null;
+  let dominantPollutant: string = "";
+
+  if (realData && realData.pollutants && Object.keys(realData.pollutants).length > 0) {
+    // Use real data
+    aqiValue = realData.aqi.value;
+    aqiCity = realData.city;
+    aqiTimestamp = realData.last_update;
+    apiStationName = realData.api_station_name;
+    dominantPollutant = realData.dominant_pollutant;
+    pollutantRows = Object.entries(realData.pollutants).map(([param, data]) => ({
+      parameter: param,
+      value: data.value,
+      unit: data.unit,
+      aqi: data.aqi,
+    }));
+  } else {
+    // Fallback to simulated readings
+    const aqiReading = readings.find(
+      (r) => r.station_id === stationId && r.parameter === "AQI"
     );
+    const pollutantReadings = readings.filter(
+      (r) => r.station_id === stationId && r.parameter !== "AQI"
+    );
+
+    if (!aqiReading) {
+      return (
+        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+          No data for this station
+        </div>
+      );
+    }
+
+    aqiValue = aqiReading.aqi;
+    aqiCity = aqiReading.city;
+    aqiTimestamp = aqiReading.timestamp;
+    pollutantRows = pollutantReadings.map((r) => ({
+      parameter: r.parameter,
+      value: r.value,
+      unit: r.unit,
+      aqi: r.aqi,
+    }));
   }
 
-  const category = getAQICategory(aqiReading.aqi);
-  const color = getAQIColor(aqiReading.aqi);
+  const category = getAQICategory(aqiValue);
+  const color = getAQIColor(aqiValue);
 
-  // Find prominent pollutant (highest sub-index ratio)
-  let prominentPollutant = "N/A";
-  let maxRatio = 0;
-  pollutantReadings.forEach((r) => {
-    const limit = POLLUTANT_LIMITS[r.parameter];
-    if (limit) {
-      const ratio = r.value / limit.naaqs;
-      if (ratio > maxRatio) {
-        maxRatio = ratio;
-        prominentPollutant = r.parameter;
+  // Find prominent pollutant from pollutant rows
+  if (!dominantPollutant) {
+    let maxRatio = 0;
+    pollutantRows.forEach((r) => {
+      const limit = POLLUTANT_LIMITS[r.parameter];
+      if (limit) {
+        const ratio = r.value / limit.naaqs;
+        if (ratio > maxRatio) {
+          maxRatio = ratio;
+          dominantPollutant = r.parameter;
+        }
       }
-    }
-  });
+    });
+  }
+  if (!dominantPollutant) dominantPollutant = "N/A";
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-foreground truncate">
             {stationName || stationId}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {aqiReading.city} &middot; {stationId}
+            {aqiCity} &middot; {stationId}
           </p>
+          {apiStationName && (
+            <p className="text-xs text-muted-foreground mt-0.5 truncate" title={apiStationName}>
+              CPCB: {apiStationName}
+            </p>
+          )}
         </div>
-        <button
-          onClick={onClose}
-          className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted/50"
-        >
-          Close
-        </button>
+        <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+          {/* Live / Simulated Badge */}
+          {loading ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground animate-pulse">
+              Loading...
+            </span>
+          ) : isReal ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              LIVE
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+              SIMULATED
+            </span>
+          )}
+          <button
+            onClick={onClose}
+            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted/50"
+          >
+            Close
+          </button>
+        </div>
       </div>
+
+      {/* Data source info */}
+      {!loading && (
+        <div className={`px-4 py-1.5 text-[10px] border-b border-border ${
+          isReal
+            ? "bg-emerald-50 text-emerald-700"
+            : "bg-amber-50 text-amber-700"
+        }`}>
+          {isReal
+            ? `Real-time data from data.gov.in (CPCB)`
+            : error
+              ? `Simulated data (API: ${error})`
+              : `Simulated data (historical pattern model)`
+          }
+        </div>
+      )}
 
       {/* Gauge + Meta */}
       <div className="p-4 flex flex-col items-center gap-3">
         <div className="relative">
-          <AQIGauge aqi={aqiReading.aqi} size={150} />
+          <AQIGauge aqi={aqiValue} size={150} />
         </div>
 
         {/* Prominent pollutant badge */}
@@ -195,15 +305,15 @@ export function StationDetailPanel({
           <span className="text-xs text-muted-foreground">Prominent Pollutant:</span>
           <span
             className="px-2 py-0.5 rounded text-xs font-bold"
-            style={{ backgroundColor: color, color: getAQITextOnColor(aqiReading.aqi) }}
+            style={{ backgroundColor: color, color: getAQITextOnColor(aqiValue) }}
           >
-            {prominentPollutant}
+            {dominantPollutant}
           </span>
         </div>
 
         {/* Last updated */}
         <p className="text-xs text-muted-foreground">
-          Updated: {new Date(aqiReading.timestamp).toLocaleString()}
+          Updated: {new Date(aqiTimestamp).toLocaleString()}
         </p>
       </div>
 
@@ -219,7 +329,7 @@ export function StationDetailPanel({
             </tr>
           </thead>
           <tbody>
-            {pollutantReadings.map((r) => {
+            {pollutantRows.map((r) => {
               const limit = POLLUTANT_LIMITS[r.parameter];
               const pColor = getPollutantColor(r.parameter, r.value);
               const ratio = limit ? r.value / limit.naaqs : 0;

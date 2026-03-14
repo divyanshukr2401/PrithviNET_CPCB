@@ -330,7 +330,7 @@ class LiveSimulator:
             "zone": "unknown",
             "is_anomaly": 0,
             "anomaly_type": "",
-            "quality_flag": "valid",
+            "quality_flag": "simulated",
         }
 
         # Decompose AQI into 8 individual pollutant readings
@@ -351,7 +351,7 @@ class LiveSimulator:
                     "zone": "unknown",
                     "is_anomaly": 0,
                     "anomaly_type": "",
-                    "quality_flag": "valid",
+                    "quality_flag": "simulated",
                 }
             )
 
