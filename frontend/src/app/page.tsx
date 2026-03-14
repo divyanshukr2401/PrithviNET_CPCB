@@ -8,7 +8,6 @@ import { AQIMap } from "@/components/aqi-map";
 import { WaterQualityMap } from "@/components/water-quality-map";
 import {
   GroundwaterExploitationMap,
-  getExploitationSummary,
 } from "@/components/groundwater-exploitation-map";
 import {
   StatsCards,
@@ -730,44 +729,46 @@ export default function DashboardPage() {
 
               {/* ── Groundwater Exploitation Choropleth ── */}
               {(() => {
-                const summary = getExploitationSummary();
                 return (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="bg-card rounded-lg border border-border p-4">
-                        <div className="text-xs text-muted-foreground mb-1">Safe (&lt;70%)</div>
-                        <div className="text-2xl font-bold" style={{ color: "#c8d6e5" }}>
-                          <span className="text-foreground">{summary.safe}</span>
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                    {/* CGWB 2024-25 District/Assessment Unit Summary */}
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                      <div className="bg-card rounded-lg border border-border p-4 text-center">
+                        <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Total</div>
+                        <div className="text-3xl font-extrabold text-foreground leading-none">302</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
                       </div>
-                      <div className="bg-card rounded-lg border border-border p-4">
-                        <div className="text-xs text-muted-foreground mb-1">Semi-Critical (70-90%)</div>
-                        <div className="text-2xl font-bold" style={{ color: "#2563eb" }}>
-                          {summary.semiCritical}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      <div className="bg-card rounded-lg border border-border p-4 text-center">
+                        <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#16a34a" }}>Safe</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#16a34a" }}>36</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
                       </div>
-                      <div className="bg-card rounded-lg border border-border p-4">
-                        <div className="text-xs text-muted-foreground mb-1">Critical (90-100%)</div>
-                        <div className="text-2xl font-bold" style={{ color: "#eab308" }}>
-                          {summary.critical}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      <div className="bg-card rounded-lg border border-border p-4 text-center">
+                        <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#2563eb" }}>Semi-Critical</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#2563eb" }}>27</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
                       </div>
-                      <div className="bg-card rounded-lg border border-border p-4">
-                        <div className="text-xs text-muted-foreground mb-1">Over-Exploited (&gt;100%)</div>
-                        <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
-                          {summary.overExploited}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      <div className="bg-card rounded-lg border border-border p-4 text-center">
+                        <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#eab308" }}>Critical</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#eab308" }}>23</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                      </div>
+                      <div className="bg-card rounded-lg border border-border p-4 text-center">
+                        <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#dc2626" }}>Over-Exploited</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#dc2626" }}>213</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                      </div>
+                      <div className="bg-card rounded-lg border border-border p-4 text-center">
+                        <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#06b6d4" }}>Saline</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#06b6d4" }}>3</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
                       </div>
                     </div>
 
                     <div className="bg-card rounded-lg border border-border overflow-hidden">
                       <div className="p-3 border-b border-border flex items-center justify-between">
                         <h3 className="text-sm font-medium">Groundwater Exploitation by State</h3>
-                        <span className="text-xs text-muted-foreground">CGWB 2024-25 | 37 States/UTs</span>
+                        <span className="text-xs text-muted-foreground">CGWB 2024-25 | 302 Assessment Units across 37 States/UTs</span>
                       </div>
                       <GroundwaterExploitationMap className="h-[550px]" />
                     </div>
