@@ -7,6 +7,10 @@ import { getAQICategory } from "@/lib/types";
 import { AQIMap } from "@/components/aqi-map";
 import { WaterQualityMap } from "@/components/water-quality-map";
 import {
+  GroundwaterExploitationMap,
+  getExploitationSummary,
+} from "@/components/groundwater-exploitation-map";
+import {
   StatsCards,
   AQICategoryBadges,
   StationDetailPanel,
@@ -572,7 +576,7 @@ export default function DashboardPage() {
                     Groundwater Level Lookup
                   </h3>
                   <span className="text-xs text-muted-foreground ml-auto">
-                    50 major cities | CGWB 2018
+                    49 major cities | CGWB 2018
                   </span>
                 </div>
 
@@ -723,6 +727,53 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+
+              {/* ── Groundwater Exploitation Choropleth ── */}
+              {(() => {
+                const summary = getExploitationSummary();
+                return (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-card rounded-lg border border-border p-4">
+                        <div className="text-xs text-muted-foreground mb-1">Safe (&lt;70%)</div>
+                        <div className="text-2xl font-bold" style={{ color: "#c8d6e5" }}>
+                          <span className="text-foreground">{summary.safe}</span>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      </div>
+                      <div className="bg-card rounded-lg border border-border p-4">
+                        <div className="text-xs text-muted-foreground mb-1">Semi-Critical (70-90%)</div>
+                        <div className="text-2xl font-bold" style={{ color: "#2563eb" }}>
+                          {summary.semiCritical}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      </div>
+                      <div className="bg-card rounded-lg border border-border p-4">
+                        <div className="text-xs text-muted-foreground mb-1">Critical (90-100%)</div>
+                        <div className="text-2xl font-bold" style={{ color: "#eab308" }}>
+                          {summary.critical}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      </div>
+                      <div className="bg-card rounded-lg border border-border p-4">
+                        <div className="text-xs text-muted-foreground mb-1">Over-Exploited (&gt;100%)</div>
+                        <div className="text-2xl font-bold" style={{ color: "#dc2626" }}>
+                          {summary.overExploited}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">States/UTs</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-card rounded-lg border border-border overflow-hidden">
+                      <div className="p-3 border-b border-border flex items-center justify-between">
+                        <h3 className="text-sm font-medium">Groundwater Exploitation by State</h3>
+                        <span className="text-xs text-muted-foreground">CGWB 2024-25 | 37 States/UTs</span>
+                      </div>
+                      <GroundwaterExploitationMap className="h-[550px]" />
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Heatmap */}
               <div className="bg-card rounded-lg border border-border overflow-hidden">
