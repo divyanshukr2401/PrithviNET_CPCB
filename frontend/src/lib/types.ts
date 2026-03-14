@@ -269,7 +269,7 @@ export interface GroundwaterResponse {
   cities: GroundwaterCity[];
 }
 
-// ── Groundwater Exploitation (State-level) ──────────────────
+// ── Groundwater Exploitation ─────────────────────────────────
 export type ExploitationCategory =
   | "Safe"
   | "Semi-Critical"
@@ -279,6 +279,17 @@ export type ExploitationCategory =
 export interface ExploitationStateData {
   state: string;
   rainfall_mm: number;
+  extractable_ham: number;
+  extraction_ham: number;
+  exploitation_pct: number;
+  category: ExploitationCategory;
+}
+
+export interface ExploitationDistrictData {
+  state: string;
+  district: string;
+  rainfall_mm: number;
+  recharge_ham: number;
   extractable_ham: number;
   extraction_ham: number;
   exploitation_pct: number;

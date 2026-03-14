@@ -731,44 +731,39 @@ export default function DashboardPage() {
               {(() => {
                 return (
                   <>
-                    {/* CGWB 2024-25 District/Assessment Unit Summary */}
-                    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                    {/* CGWB 2024-25 District Summary */}
+                    <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
                       <div className="bg-card rounded-lg border border-border p-4 text-center">
-                        <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Total</div>
-                        <div className="text-3xl font-extrabold text-foreground leading-none">302</div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                        <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Total Districts</div>
+                        <div className="text-3xl font-extrabold text-foreground leading-none">776</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Districts</div>
                       </div>
                       <div className="bg-card rounded-lg border border-border p-4 text-center">
                         <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#16a34a" }}>Safe</div>
-                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#16a34a" }}>36</div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#16a34a" }}>404</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Districts</div>
                       </div>
                       <div className="bg-card rounded-lg border border-border p-4 text-center">
                         <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#2563eb" }}>Semi-Critical</div>
-                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#2563eb" }}>27</div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#2563eb" }}>173</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Districts</div>
                       </div>
                       <div className="bg-card rounded-lg border border-border p-4 text-center">
                         <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#eab308" }}>Critical</div>
-                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#eab308" }}>23</div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#eab308" }}>57</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Districts</div>
                       </div>
                       <div className="bg-card rounded-lg border border-border p-4 text-center">
                         <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#dc2626" }}>Over-Exploited</div>
-                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#dc2626" }}>213</div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
-                      </div>
-                      <div className="bg-card rounded-lg border border-border p-4 text-center">
-                        <div className="text-[11px] font-medium uppercase tracking-wide mb-2" style={{ color: "#06b6d4" }}>Saline</div>
-                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#06b6d4" }}>3</div>
-                        <div className="text-[10px] text-muted-foreground mt-1">Assessment Units</div>
+                        <div className="text-3xl font-extrabold leading-none" style={{ color: "#dc2626" }}>142</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">Districts</div>
                       </div>
                     </div>
 
                     <div className="bg-card rounded-lg border border-border overflow-hidden">
                       <div className="p-3 border-b border-border flex items-center justify-between">
-                        <h3 className="text-sm font-medium">Groundwater Exploitation by State</h3>
-                        <span className="text-xs text-muted-foreground">CGWB 2024-25 | 302 Assessment Units across 37 States/UTs</span>
+                        <h3 className="text-sm font-medium">Groundwater Exploitation by District</h3>
+                        <span className="text-xs text-muted-foreground">CGWB 2024-25 | 776 Districts across 36 States/UTs</span>
                       </div>
                       <GroundwaterExploitationMap className="h-[550px]" />
                     </div>
