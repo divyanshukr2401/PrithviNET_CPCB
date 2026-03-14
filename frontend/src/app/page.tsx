@@ -543,7 +543,7 @@ export default function DashboardPage() {
                     Excellent Quality
                   </div>
                   <div className="text-2xl font-bold text-green-700">
-                    {waterPoints.filter((p) => p.wqi <= 0.2).length}
+                    {waterPoints.filter((p) => p.wqi <= 0.15).length}
                   </div>
                 </div>
                 <div className="bg-card rounded-lg border border-border p-4">
@@ -553,7 +553,7 @@ export default function DashboardPage() {
                   <div className="text-2xl font-bold text-yellow-600">
                     {
                       waterPoints.filter(
-                        (p) => p.wqi > 0.2 && p.wqi <= 0.5
+                        (p) => p.wqi > 0.15 && p.wqi <= 0.5
                       ).length
                     }
                   </div>
@@ -775,11 +775,11 @@ export default function DashboardPage() {
                 );
               })()}
 
-              {/* Heatmap */}
+              {/* Water Quality Station Map */}
               <div className="bg-card rounded-lg border border-border overflow-hidden">
                 <div className="p-3 border-b border-border flex items-center justify-between">
                   <h3 className="text-sm font-medium">
-                    Water Quality Heatmap
+                    Water Quality Station Map
                   </h3>
                   <span className="text-xs text-muted-foreground">
                     {waterPoints.length} monitoring stations | Source:
@@ -809,27 +809,27 @@ export default function DashboardPage() {
                     {
                       label: "Excellent",
                       color: "#0571b0",
-                      range: "WQI 0 - 0.2",
+                      range: "WQI 0 - 0.15",
                     },
                     {
                       label: "Good",
                       color: "#92c5de",
-                      range: "WQI 0.2 - 0.35",
+                      range: "WQI 0.15 - 0.3",
                     },
                     {
                       label: "Fair",
-                      color: "#f7f056",
-                      range: "WQI 0.35 - 0.5",
+                      color: "#eab308",
+                      range: "WQI 0.3 - 0.5",
                     },
                     {
                       label: "Poor",
                       color: "#f4a582",
-                      range: "WQI 0.5 - 0.75",
+                      range: "WQI 0.5 - 0.7",
                     },
                     {
                       label: "Very Poor",
                       color: "#ca0020",
-                      range: "WQI 0.75 - 1.0",
+                      range: "WQI 0.7 - 1.0",
                     },
                   ].map((item) => (
                     <div

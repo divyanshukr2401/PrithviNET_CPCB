@@ -130,3 +130,9 @@ body {
 .animate-pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+/* WQI station tooltip — wider with no max-width clamp */
+.wqi-tooltip {
+  padding: 8px 10px !important;
+  max-width: 280px !important;
+}

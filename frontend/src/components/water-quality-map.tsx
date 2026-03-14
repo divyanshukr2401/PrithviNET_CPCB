@@ -14,13 +14,16 @@ const HeatmapWrapper = dynamic(() => import("./heatmap-wrapper"), {
   ),
 });
 
-// Water quality heatmap gradient: blue (clean) → yellow → red (polluted)
+// Water quality gradient — rescaled for actual data distribution
+// 86% of stations have WQI 0–0.1, so we spread the blue range to show variation
+// Breakpoints: Excellent ≤0.15, Good 0.15–0.3, Fair 0.3–0.5, Poor 0.5–0.7, Very Poor >0.7
 const WATER_QUALITY_GRADIENT: Record<number, string> = {
-  0.0: "#0571b0",   // Deep blue - excellent
-  0.25: "#92c5de",  // Light blue - good
-  0.5: "#f7f056",   // Yellow - fair
-  0.75: "#f4a582",  // Orange - poor
-  1.0: "#ca0020",   // Red - very poor
+  0.0: "#0571b0",    // Deep blue — excellent (WQI near 0)
+  0.15: "#92c5de",   // Light blue — good
+  0.3: "#f7f056",    // Yellow — fair
+  0.5: "#f4a582",    // Orange — poor
+  0.7: "#ca0020",    // Red — very poor
+  1.0: "#7f0000",    // Dark red — extreme
 };
 
 interface WaterQualityMapProps {
@@ -58,9 +61,7 @@ export function WaterQualityMap({
         points={points}
         center={center}
         zoom={zoom}
-        radius={28}
-        blur={18}
-        max={1.0}
+        radius={7}
         gradient={WATER_QUALITY_GRADIENT}
       />
     </div>
