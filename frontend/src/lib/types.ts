@@ -219,3 +219,22 @@ export function getAQIColor(aqi: number): string {
 export function getAQITextOnColor(aqi: number): string {
   return CPCB_AQI_TEXT_COLORS[getAQICategory(aqi)];
 }
+
+// ── Water Quality Heatmap ──────────────────────────────────
+export interface WaterQualityHeatmapPoint {
+  lat: number;
+  lng: number;
+  intensity: number;
+  station_name: string;
+  state: string;
+  station_code: string;
+  wqi: number;
+  parameters: Record<string, number>;
+}
+
+export interface WaterQualityHeatmapResponse {
+  source: string;
+  total_points: number;
+  filter: { state: string | null; limit: number };
+  points: WaterQualityHeatmapPoint[];
+}

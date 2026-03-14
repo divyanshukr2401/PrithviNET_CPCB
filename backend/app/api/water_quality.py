@@ -6,6 +6,8 @@ from datetime import datetime
 
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
+from app.services.ingestion.water_quality_fetcher import fetch_water_quality_cached
+from app.core.redis import get_redis
 
 router = APIRouter()
 
@@ -23,7 +25,11 @@ async def get_water_quality_summary():
             FROM water_quality_raw
             WHERE timestamp >= now() - INTERVAL 2 HOUR
         """)
-        row = dict(zip(result.column_names, result.result_rows[0])) if result.result_rows else {}
+        row = (
+            dict(zip(result.column_names, result.result_rows[0]))
+            if result.result_rows
+            else {}
+        )
     except Exception:
         row = {}
 
@@ -31,7 +37,18 @@ async def get_water_quality_summary():
         "summary": "Water quality monitoring active",
         "total_stations": len(stations),
         "active_stations_2h": row.get("active_stations", 0),
-        "parameters": ["pH", "DO", "BOD", "COD", "TSS", "Turbidity", "Conductivity", "Temperature", "Nitrates", "Phosphates"],
+        "parameters": [
+            "pH",
+            "DO",
+            "BOD",
+            "COD",
+            "TSS",
+            "Turbidity",
+            "Conductivity",
+            "Temperature",
+            "Nitrates",
+            "Phosphates",
+        ],
         "rivers": ["Kharun", "Sheonath", "Hasdeo", "Arpa", "Kelo"],
         "last_updated": datetime.utcnow().isoformat(),
     }
@@ -54,10 +71,15 @@ async def get_water_stations(
 async def get_water_station_data(station_id: str):
     """Get water quality data for a specific monitoring station."""
     readings = await ch_writer.query_recent_readings(
-        "water_quality_raw", station_id, id_column="station_id", hours=6,
+        "water_quality_raw",
+        station_id,
+        id_column="station_id",
+        hours=6,
     )
     if not readings:
-        raise HTTPException(status_code=404, detail=f"No recent data for station {station_id}")
+        raise HTTPException(
+            status_code=404, detail=f"No recent data for station {station_id}"
+        )
 
     # Group by parameter, take latest
     latest: dict[str, dict] = {}
@@ -70,7 +92,17 @@ async def get_water_station_data(station_id: str):
     wqi_values = [v.get("wqi", 50) for v in latest.values()]
     avg_wqi = round(sum(wqi_values) / max(1, len(wqi_values)), 1)
 
-    wqi_category = "Excellent" if avg_wqi >= 80 else "Good" if avg_wqi >= 60 else "Fair" if avg_wqi >= 40 else "Poor" if avg_wqi >= 20 else "Very Poor"
+    wqi_category = (
+        "Excellent"
+        if avg_wqi >= 80
+        else "Good"
+        if avg_wqi >= 60
+        else "Fair"
+        if avg_wqi >= 40
+        else "Poor"
+        if avg_wqi >= 20
+        else "Very Poor"
+    )
 
     sample = next(iter(latest.values()), {})
 
@@ -126,15 +158,47 @@ async def get_river_data(
     rivers: dict[str, list] = {}
     for r in rows:
         rn = r.get("river_name", "Unknown")
-        rivers.setdefault(rn, []).append({
-            "parameter": r.get("parameter", ""),
-            "avg_value": round(r.get("avg_value", 0), 2),
-            "min_value": round(r.get("min_value", 0), 2),
-            "max_value": round(r.get("max_value", 0), 2),
-            "readings": r.get("readings", 0),
-        })
+        rivers.setdefault(rn, []).append(
+            {
+                "parameter": r.get("parameter", ""),
+                "avg_value": round(r.get("avg_value", 0), 2),
+                "min_value": round(r.get("min_value", 0), 2),
+                "max_value": round(r.get("max_value", 0), 2),
+                "readings": r.get("readings", 0),
+            }
+        )
 
     return {"rivers": rivers, "filter": {"river": river, "hours": hours}}
+
+
+@router.get("/quality-heatmap")
+async def get_water_quality_heatmap(
+    limit: int = Query(5000, ge=5, le=50000, description="Max records to fetch"),
+    state: Optional[str] = Query(None, description="Filter by state name"),
+):
+    """
+    Get water quality heatmap data from data.gov.in CPCB monitoring stations.
+    Returns points with lat, lng, intensity (WQI 0-1), station info, and parameters.
+    Data source: CPCB Surface Water Quality March 2018.
+    """
+    try:
+        redis = await get_redis()
+    except Exception:
+        redis = None
+
+    points = await fetch_water_quality_cached(
+        redis_client=redis,
+        limit=limit,
+        state=state,
+        cache_ttl=7200,  # 2 hours (static dataset)
+    )
+
+    return {
+        "source": "data.gov.in CPCB Surface Water Quality 2018",
+        "total_points": len(points),
+        "filter": {"state": state, "limit": limit},
+        "points": points,
+    }
 
 
 @router.get("/wqi")

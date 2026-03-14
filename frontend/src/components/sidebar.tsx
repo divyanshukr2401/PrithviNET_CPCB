@@ -13,8 +13,6 @@ import {
   Trophy,
   MapPin,
   Leaf,
-  Medal,
-  GitCompareArrows,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -22,8 +20,6 @@ import {
 const navItems = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
   { href: "/stations", label: "Stations", icon: MapPin },
-  { href: "/rankings", label: "City Rankings", icon: Medal },
-  { href: "/compare", label: "Compare Cities", icon: GitCompareArrows },
   { href: "/forecast", label: "Forecast", icon: Activity },
   { href: "/causal", label: "What-If Simulator", icon: BrainCircuit },
   { href: "/compliance", label: "OCEMS Healer", icon: Shield },
