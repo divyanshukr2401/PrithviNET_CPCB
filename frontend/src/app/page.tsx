@@ -427,7 +427,7 @@ export default function DashboardPage() {
 
           {/* Map + Station Detail/List */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <div className="lg:col-span-5 bg-card rounded-lg border border-border overflow-hidden">
+            <div className="lg:col-span-8 bg-card rounded-lg border border-border overflow-hidden">
               <div className="p-3 border-b border-border flex items-center justify-between">
                 <h3 className="text-sm font-medium">Station Map</h3>
                 <span className="text-xs text-muted-foreground">
@@ -439,11 +439,11 @@ export default function DashboardPage() {
                 onStationClick={handleStationClick}
                 center={[22.5, 80.0]}
                 zoom={5}
-                className="h-[500px]"
+                className="h-[550px]"
               />
             </div>
 
-            <div className="lg:col-span-7 bg-card rounded-lg border border-border overflow-hidden flex flex-col">
+            <div className="lg:col-span-4 bg-card rounded-lg border border-border overflow-hidden flex flex-col">
               {selectedStation ? (
                 <StationDetailPanel
                   readings={filteredReadings}
@@ -466,7 +466,7 @@ export default function DashboardPage() {
                     onStationClick={handleStationClick}
                     stationNameMap={stationNameMap}
                     selectedStationId={selectedStation}
-                    maxHeight="460px"
+                    maxHeight="510px"
                   />
                 </>
               )}
