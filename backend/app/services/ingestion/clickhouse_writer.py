@@ -289,7 +289,6 @@ class ClickHouseWriter:
     ) -> list[dict]:
         """Get time series for a station+parameter, ordered by time.
 
-        Prefers real and historically valid data over simulated data.
         Fetches the most recent N records (days * 24 for hourly data) rather
         than filtering by wall-clock time.  Historical CPCB data is from
         2024-2025 while the live simulator writes sparse 2026 readings, so a
@@ -298,34 +297,7 @@ class ClickHouseWriter:
         """
         client = self._get_client()
         limit = days * 24  # hourly data → 720 rows for 30 days
-
-        # First try: only real + valid data (exclude simulated)
-        query_preferred = f"""
-            SELECT timestamp, value
-            FROM (
-                SELECT timestamp, value
-                FROM {table}
-                WHERE station_id = '{station_id}'
-                  AND parameter = '{parameter}'
-                  AND quality_flag IN ('valid', 'real')
-                ORDER BY timestamp DESC
-                LIMIT {limit}
-            )
-            ORDER BY timestamp ASC
-        """
-        try:
-            result = client.query(query_preferred)
-            rows = [
-                {"timestamp": row[0], "value": row[1]} for row in result.result_rows
-            ]
-            # If we got enough data (at least 24 points), use it
-            if len(rows) >= 24:
-                return rows
-        except Exception as e:
-            logger.error(f"ClickHouse preferred historical query failed: {e}")
-
-        # Fallback: include all data (including simulated)
-        query_all = f"""
+        query = f"""
             SELECT timestamp, value
             FROM (
                 SELECT timestamp, value
@@ -338,7 +310,7 @@ class ClickHouseWriter:
             ORDER BY timestamp ASC
         """
         try:
-            result = client.query(query_all)
+            result = client.query(query)
             return [
                 {"timestamp": row[0], "value": row[1]} for row in result.result_rows
             ]

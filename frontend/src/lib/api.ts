@@ -1,7 +1,7 @@
 // PRITHVINET API Client
 // Maps backend responses to frontend types
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -27,7 +27,6 @@ import type {
   AutoHealerDiagnosis,
   LeaderboardEntry,
   Factory,
-  RealStationData,
 } from "./types";
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -237,11 +236,4 @@ export async function submitReport(report: {
     method: "POST",
     body: JSON.stringify(report),
   });
-}
-
-// ── Real-Time Station Data (data.gov.in) ──────────────────
-export async function getRealStationData(
-  stationId: string
-): Promise<RealStationData> {
-  return fetchAPI(`/api/v1/air/live/real/${stationId}`);
 }

@@ -24,7 +24,6 @@ from app.core.redis import get_redis, close_redis
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 from app.services.ingestion.live_simulator import live_simulator
-from app.services.ingestion.datagov_fetcher import datagov_fetcher
 
 
 @asynccontextmanager
@@ -70,7 +69,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("PRITHVINET Shutting Down...")
     await live_simulator.stop()
-    await datagov_fetcher.close()
     await close_redis()
     await pg_writer.close()
     await ch_writer.close()

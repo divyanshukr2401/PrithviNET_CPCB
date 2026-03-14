@@ -219,28 +219,3 @@ export function getAQIColor(aqi: number): string {
 export function getAQITextOnColor(aqi: number): string {
   return CPCB_AQI_TEXT_COLORS[getAQICategory(aqi)];
 }
-
-// ── Real Station Data (from data.gov.in API) ──────────────
-export interface RealStationData {
-  source: string;           // "data.gov.in" or "historical_pattern_simulator"
-  quality_flag: string;     // "real" or "simulated"
-  station_id: string;
-  api_station_name: string | null;
-  city: string;
-  last_update: string;
-  aqi: {
-    value: number;
-    category: string;
-  };
-  dominant_pollutant: string;
-  location: {
-    lat: number;
-    lon: number;
-  };
-  pollutants: Record<string, {
-    value: number;
-    unit: string;
-    aqi: number;
-  }>;
-  all_readings: AirReading[];
-}
