@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/auth-provider";
+import type { UserRole } from "@/lib/types";
 import {
   BarChart3,
   Wind,
@@ -16,21 +18,40 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  LogOut,
 } from "lucide-react";
 
-const navItems = [
+const navItems: Array<{ href: string; label: string; icon: typeof BarChart3; roles?: UserRole[] }> = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
   { href: "/stations", label: "Stations", icon: MapPin },
-  { href: "/forecast", label: "Forecast", icon: Activity },
-  { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/causal", label: "What-If Simulator", icon: BrainCircuit },
-  { href: "/compliance", label: "OCEMS Healer", icon: Shield },
+  { href: "/forecast", label: "Forecast", icon: Activity, roles: ["super_admin", "regional_officer", "monitoring_team"] },
+  { href: "/reports", label: "Reports", icon: FileText, roles: ["super_admin", "regional_officer", "monitoring_team", "industry_user"] },
+  { href: "/causal", label: "What-If Simulator", icon: BrainCircuit, roles: ["super_admin", "regional_officer"] },
+  { href: "/compliance", label: "OCEMS Alerts", icon: Shield, roles: ["super_admin", "regional_officer", "monitoring_team", "industry_user"] },
   { href: "/gamification", label: "Eco Points", icon: Trophy },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [accessDeniedPath, setAccessDeniedPath] = useState<string | null>(null);
+  const { user, logout, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setAccessDeniedPath(new URLSearchParams(window.location.search).get("accessDenied"));
+  }, [pathname]);
+
+  if (pathname.startsWith("/login")) {
+    return null;
+  }
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.roles || item.roles.length === 0) return true;
+    if (!user) return false;
+    return item.roles.includes(user.role);
+  });
 
   return (
     <aside
@@ -65,7 +86,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href));
@@ -102,6 +123,22 @@ export function Sidebar() {
         })}
       </nav>
 
+      {isAuthenticated && user && (
+        <div className="px-3 pb-2">
+          {accessDeniedPath && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              Access to {accessDeniedPath} is restricted for your role.
+            </div>
+          )}
+          <div className="rounded-lg border border-[var(--sidebar-border)] bg-[rgba(255,255,255,0.06)] px-3 py-3 text-xs">
+            <div className="font-medium text-white">{user.full_name}</div>
+            <div className="mt-1 uppercase tracking-wide text-[rgba(226,232,240,0.6)]">
+              {user.role.replace(/_/g, " ")}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Collapse Toggle */}
       <div className="p-2" style={{ borderTop: "1px solid var(--sidebar-border)" }}>
         <button
@@ -135,6 +172,19 @@ export function Sidebar() {
       {/* Footer */}
       {!collapsed && (
         <div className="p-3" style={{ borderTop: "1px solid var(--sidebar-border)" }}>
+          <button
+            type="button"
+            onClick={async () => {
+              if (isAuthenticated) {
+                await logout();
+              }
+              router.push("/login");
+            }}
+            className="mb-3 inline-flex items-center gap-2 rounded-lg border border-[var(--sidebar-border)] px-3 py-2 text-xs text-[rgba(226,232,240,0.7)] hover:bg-[var(--sidebar-active)] hover:text-white"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            {isAuthenticated ? "Sign Out" : "Sign In"}
+          </button>
           <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(226,232,240,0.5)" }}>
             <Wind className="w-3 h-3" />
             <span>CECB Hackathon 2026</span>

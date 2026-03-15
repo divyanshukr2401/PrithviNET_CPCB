@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     # Gemini AI (Copilot)
     GEMINI_API_KEY: Optional[str] = None
 
+    # Application auth
+    APP_AUTH_SECRET: str = "prithvinet_app_auth_secret_2026"
+    AUTH_TOKEN_EXPIRE_HOURS: int = 12
+
+    # OCEMS Alerts workbook sources
+    OCEMS_INDUSTRY_WORKBOOK: str = (
+        r"D:\Downloads\Industry_details_COMPLETE_WITH_CONTACTS.xlsx"
+    )
+    OCEMS_STANDARDS_WORKBOOK: str = (
+        r"D:\Downloads\India_Pollution_Standards_AIR_WATER_NOISE (1).xlsx"
+    )
+
     class Config:
         env_file = ".env"
         case_sensitive = True

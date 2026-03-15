@@ -152,6 +152,138 @@ class PostgresWriter:
         )
         return dict(row) if row else None
 
+    async def get_user_by_identity(self, identity: str) -> Optional[dict]:
+        self._ensure_pool()
+        row = await self._pool.fetchrow(
+            """SELECT * FROM users
+               WHERE lower(username) = lower($1)
+                  OR lower(coalesce(email, '')) = lower($1)
+               LIMIT 1""",
+            identity,
+        )
+        return dict(row) if row else None
+
+    async def get_users_by_role(self, role: Optional[str] = None) -> list[dict]:
+        self._ensure_pool()
+        if role:
+            rows = await self._pool.fetch(
+                "SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC",
+                role,
+            )
+        else:
+            rows = await self._pool.fetch(
+                "SELECT * FROM users ORDER BY role, created_at DESC"
+            )
+        return [dict(r) for r in rows]
+
+    async def update_user_last_login(self, user_id: str) -> None:
+        self._ensure_pool()
+        await self._pool.execute(
+            "UPDATE users SET last_login_at = NOW() WHERE user_id = $1",
+            user_id,
+        )
+
+    async def upsert_citizen_user(
+        self,
+        *,
+        user_id: str,
+        username: str,
+        full_name: str,
+        email: Optional[str],
+        phone: Optional[str],
+        city: str,
+        state: str,
+    ) -> dict:
+        self._ensure_pool()
+        row = await self._pool.fetchrow(
+            """
+            INSERT INTO users (
+                user_id, username, email, full_name, role, auth_mode,
+                phone, city, state, eco_points, level, is_active, created_at
+            ) VALUES (
+                $1, $2, $3, $4, 'citizen', 'citizen_quick_access',
+                $5, $6, $7, 0, 1, TRUE, NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+                username = EXCLUDED.username,
+                email = EXCLUDED.email,
+                full_name = EXCLUDED.full_name,
+                phone = EXCLUDED.phone,
+                city = EXCLUDED.city,
+                state = EXCLUDED.state,
+                auth_mode = 'citizen_quick_access',
+                is_active = TRUE
+            RETURNING *
+            """,
+            user_id,
+            username,
+            email,
+            full_name,
+            phone,
+            city,
+            state,
+        )
+        return dict(row)
+
+    async def create_or_update_internal_user(
+        self,
+        *,
+        user_id: str,
+        username: str,
+        email: Optional[str],
+        full_name: str,
+        role: str,
+        password_hash: str,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        assigned_region: Optional[str] = None,
+        assigned_state: Optional[str] = None,
+        assigned_district: Optional[str] = None,
+        industry_scope: Optional[str] = None,
+    ) -> dict:
+        self._ensure_pool()
+        row = await self._pool.fetchrow(
+            """
+            INSERT INTO users (
+                user_id, username, email, full_name, role, password_hash,
+                auth_mode, city, state, assigned_region, assigned_state,
+                assigned_district, industry_scope, is_active, created_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6,
+                'password', $7, $8, $9, $10,
+                $11, $12, TRUE, NOW()
+            )
+            ON CONFLICT (user_id) DO UPDATE SET
+                username = EXCLUDED.username,
+                email = EXCLUDED.email,
+                full_name = EXCLUDED.full_name,
+                role = EXCLUDED.role,
+                password_hash = EXCLUDED.password_hash,
+                auth_mode = 'password',
+                city = EXCLUDED.city,
+                state = EXCLUDED.state,
+                assigned_region = EXCLUDED.assigned_region,
+                assigned_state = EXCLUDED.assigned_state,
+                assigned_district = EXCLUDED.assigned_district,
+                industry_scope = EXCLUDED.industry_scope,
+                is_active = TRUE
+            RETURNING *
+            """,
+            user_id,
+            username,
+            email,
+            full_name,
+            role,
+            password_hash,
+            city,
+            state,
+            assigned_region,
+            assigned_state,
+            assigned_district,
+            industry_scope,
+        )
+        return dict(row)
+
     async def add_eco_points(
         self, user_id: str, points: int, action: str, description: str = ""
     ) -> int:

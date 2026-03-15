@@ -10,6 +10,8 @@ Endpoint: POST /api/v1/copilot/chat
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -27,8 +29,7 @@ router = APIRouter()
 # Gemini Client (google.genai — new SDK)
 # ═══════════════════════════════════════════════════════════════════════
 
-# Model preference order — 2.5 models work on the free tier;
-# 2.0 models have quota=0 on many free-tier keys.
+# Keep the main model explicit; free-tier quotas can vary by key.
 GEMINI_MODEL = "gemini-2.5-flash"
 
 _client: genai.Client | None = None
@@ -44,9 +45,7 @@ def _get_client() -> genai.Client:
                 detail="Gemini API key not configured. Set GEMINI_API_KEY in .env",
             )
         _client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        logger.info(
-            f"Gemini client created for PrithviNET Copilot (model: {GEMINI_MODEL})"
-        )
+        logger.info("Gemini client created for PrithviNET Copilot")
     return _client
 
 
@@ -187,7 +186,8 @@ async def copilot_chat(req: CopilotRequest):
 
     try:
         client = _get_client()
-        response = client.models.generate_content(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=GEMINI_MODEL,
             contents=gemini_contents,
             config=types.GenerateContentConfig(
@@ -264,7 +264,7 @@ async def get_suggestions(active_layer: Optional[str] = None):
         ],
     }
 
-    suggestions = layer_specific.get(active_layer, common)
+    suggestions = layer_specific.get(active_layer or "", common)
     if active_layer:
         suggestions = suggestions + common[:1]  # Add one common suggestion
 

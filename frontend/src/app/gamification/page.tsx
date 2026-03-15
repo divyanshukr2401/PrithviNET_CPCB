@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getLeaderboard, submitReport } from "@/lib/api";
+import { useAuth } from "@/components/auth-provider";
 import type { LeaderboardEntry } from "@/lib/types";
 import { Trophy, Medal, Star, Send, Users, RefreshCw, MapPin } from "lucide-react";
 
@@ -46,13 +48,14 @@ function rankIcon(rank: number) {
 
 // ── Page Component ────────────────────────────────────────
 export default function GamificationPage() {
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuth();
   // Leaderboard state
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [lbLoading, setLbLoading] = useState(true);
   const [lbError, setLbError] = useState<string | null>(null);
 
   // Report form state
-  const [userId, setUserId] = useState("");
   const [reportType, setReportType] = useState<string>(REPORT_CATEGORIES[0].value);
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState("medium");
@@ -100,14 +103,17 @@ export default function GamificationPage() {
   // ── Submit report handler ───────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId.trim() || !description.trim()) return;
+    if (!description.trim()) return;
+    if (!isAuthenticated || user?.role !== "citizen") {
+      router.push("/login?next=/gamification");
+      return;
+    }
 
     setSubmitting(true);
     setSubmitError(null);
     setSubmitResult(null);
     try {
       const result = await submitReport({
-        user_id: userId.trim(),
         report_type: reportType,
         description: description.trim(),
         latitude,
@@ -147,6 +153,11 @@ export default function GamificationPage() {
           Submit environmental reports and earn eco points. Climb the
           leaderboard by contributing to environmental monitoring.
         </p>
+        {!isAuthenticated || user?.role !== "citizen" ? (
+          <p className="text-xs text-muted-foreground mt-2">
+            Public users can browse the leaderboard. Citizen quick access is required only when submitting reports or earning points.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -154,30 +165,24 @@ export default function GamificationPage() {
             Submit Report Form
             ═══════════════════════════════════════════════════ */}
         <div className="bg-card rounded-lg border border-border p-5">
-          <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
-            <Send className="w-4 h-4" />
-            Submit Report
-          </h2>
+            <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
+              <Send className="w-4 h-4" />
+              Submit Report
+            </h2>
+
+          {!isAuthenticated || user?.role !== "citizen" ? (
+            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800">
+              Citizen quick access is required to submit reports and earn eco points. Use the login portal to continue as a citizen.
+            </div>
+          ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* User ID */}
-            <div>
-              <label
-                htmlFor="user-id"
-                className="block text-xs font-medium text-muted-foreground mb-1.5"
-              >
-                User ID
-              </label>
-              <input
-                id="user-id"
-                type="text"
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                placeholder="e.g. citizen_raipur_01"
-                required
-                className="w-full rounded-lg border border-border bg-card text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-              />
-            </div>
+            {isAuthenticated && user?.role === "citizen" && (
+              <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-foreground">
+                Signed in as <span className="font-medium">{user.full_name}</span>
+                {user.city ? ` (${user.city})` : ""}
+              </div>
+            )}
 
             {/* Category / Report Type */}
             <div>
@@ -314,7 +319,7 @@ export default function GamificationPage() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={submitting || !userId.trim() || !description.trim()}
+              disabled={submitting || !description.trim()}
               className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (

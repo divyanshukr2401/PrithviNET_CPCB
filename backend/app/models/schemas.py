@@ -54,6 +54,14 @@ class Severity(str, Enum):
     CRITICAL = "critical"
 
 
+class UserRole(str, Enum):
+    SUPER_ADMIN = "super_admin"
+    REGIONAL_OFFICER = "regional_officer"
+    MONITORING_TEAM = "monitoring_team"
+    INDUSTRY_USER = "industry_user"
+    CITIZEN = "citizen"
+
+
 # ---------------------------------------------------------------------------
 # INGESTION MODELS — what the simulator POSTs to the backend
 # ---------------------------------------------------------------------------
@@ -262,12 +270,51 @@ class EcoPointTransaction(BaseModel):
 
 
 class CitizenReport(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     report_type: str  # air_pollution, water_pollution, noise_violation, illegal_dumping
     latitude: float
     longitude: float
     description: str
     severity: Severity = Severity.MEDIUM
+
+
+class AuthenticatedUser(BaseModel):
+    user_id: str
+    username: str
+    full_name: str
+    role: UserRole
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    is_active: bool = True
+    auth_mode: str = "password"
+    assigned_state: Optional[str] = None
+    assigned_district: Optional[str] = None
+    assigned_region: Optional[str] = None
+    industry_scope: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    username_or_email: str
+    password: str
+    role: UserRole
+
+
+class CitizenAccessRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=150)
+    city: str = Field(min_length=2, max_length=100)
+    state: str = Field(min_length=2, max_length=100)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    user: AuthenticatedUser
+    role_home: str
 
 
 class LeaderboardEntry(BaseModel):

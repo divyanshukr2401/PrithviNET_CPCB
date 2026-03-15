@@ -5,11 +5,54 @@ from typing import Optional
 from datetime import datetime
 
 from app.services.ocems.auto_healer import auto_healer
+from app.services.ocems.alerts import ocems_alerts
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 from app.core.redis import cached
 
 router = APIRouter()
+
+
+@router.get("/alerts/summary")
+async def get_alerts_summary(hours: int = Query(72, ge=1, le=168)):
+    """Get OCEMS Alerts summary for the alert-first compliance workflow."""
+    return await ocems_alerts.get_alert_summary(hours=hours)
+
+
+@router.get("/alerts")
+async def get_alerts(
+    district: Optional[str] = Query(None),
+    cpcb_category: Optional[str] = Query(None),
+    parameter: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    hours: int = Query(72, ge=1, le=168),
+):
+    """Return enriched OCEMS Alerts with industry contact and legal context."""
+    return await ocems_alerts.get_alerts(
+        district=district,
+        cpcb_category=cpcb_category,
+        parameter=parameter,
+        severity=severity,
+        hours=hours,
+    )
+
+
+@router.get("/alerts/{alert_id}")
+async def get_alert_detail(alert_id: str):
+    """Return a single enriched alert detail record."""
+    try:
+        return await ocems_alerts.get_alert_detail(alert_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/alerts/{alert_id}/notice-draft")
+async def get_notice_draft(alert_id: str):
+    """Generate a believable regulator notice draft without sending mail."""
+    try:
+        return await ocems_alerts.build_notice_draft(alert_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/")

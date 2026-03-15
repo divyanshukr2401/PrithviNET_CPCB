@@ -109,12 +109,26 @@ CREATE TABLE IF NOT EXISTS users (
     user_id VARCHAR(50) PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
     email VARCHAR(255),
+    full_name VARCHAR(150),
+    role VARCHAR(50) DEFAULT 'citizen',
+    password_hash TEXT,
+    phone VARCHAR(30),
+    auth_mode VARCHAR(30) DEFAULT 'citizen_quick_access',
+    is_active BOOLEAN DEFAULT TRUE,
+    assigned_region VARCHAR(100),
+    assigned_state VARCHAR(100),
+    assigned_district VARCHAR(100),
+    industry_scope VARCHAR(255),
+    last_login_at TIMESTAMP,
     city VARCHAR(100),
     state VARCHAR(100),
     eco_points INT DEFAULT 0,
     level INT DEFAULT 1,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Eco-Point Transactions
 CREATE TABLE IF NOT EXISTS eco_point_transactions (

@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.api import (
+    auth,
     health,
     air_quality,
     water_quality,
@@ -23,6 +24,7 @@ from app.api import (
     report,
 )
 from app.core.redis import get_redis, close_redis
+from app.services.auth import auth_service
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
 from app.services.ingestion.live_simulator import live_simulator
@@ -39,6 +41,8 @@ async def lifespan(app: FastAPI):
     try:
         await pg_writer.connect()
         logger.info("PostgreSQL connection pool established")
+        await auth_service.ensure_seed_users()
+        logger.info("Auth seed users ensured")
     except Exception as e:
         logger.error(f"PostgreSQL connection failed: {e}")
 
@@ -107,6 +111,7 @@ app.add_middleware(
 
 # Register API Routers
 app.include_router(health.router, tags=["Health"])
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(ingest.router, prefix="/api/v1/ingest", tags=["Data Ingestion"])
 app.include_router(air_quality.router, prefix="/api/v1/air", tags=["Air Quality"])
 app.include_router(water_quality.router, prefix="/api/v1/water", tags=["Water Quality"])

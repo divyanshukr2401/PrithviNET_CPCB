@@ -137,6 +137,119 @@ export interface Factory {
   ocems_installed: boolean;
 }
 
+export interface OCEMSStandardsContext {
+  standard_summary: string[];
+  penalty_summary: string[];
+  legal_summary: string[];
+  authority: string;
+}
+
+export interface OCEMSNoticeDraft {
+  to: string;
+  cc: string[];
+  subject: string;
+  body: string;
+  priority: string;
+  status: string;
+  disclaimer: string;
+}
+
+export interface OCEMSAlert {
+  alert_id: string;
+  factory_id: string;
+  factory_name: string;
+  industry_name: string;
+  industry_type: string;
+  cpcb_category: string | null;
+  district: string | null;
+  state: string | null;
+  parameter: string;
+  value: number;
+  limit: number;
+  exceedance_pct: number;
+  severity: string;
+  timestamp: string;
+  anomaly_type: string;
+  quality_flag: string;
+  dahs_status: string;
+  sensor_health: number;
+  contact_email: string | null;
+  contact_phone: string | null;
+  website: string | null;
+  ocems_type: string | null;
+  air_pollutants: string | null;
+  water_pollutants: string | null;
+  solid_waste: string | null;
+  raw_materials: string | null;
+  diagnosis_summary: string;
+  top_diagnosis: string | null;
+  recommended_action: string | null;
+  overall_health: number;
+  dahs_uptime_pct: number;
+  match_status: string;
+  standards_context: OCEMSStandardsContext;
+  notice_draft: OCEMSNoticeDraft;
+}
+
+export interface OCEMSAlertsSummary {
+  total_units: number;
+  active_alerts: number;
+  critical_alerts: number;
+  monitored_units: number;
+  avg_compliance_signal: number;
+  last_updated: string;
+}
+
+export interface OCEMSAlertsListResponse {
+  alerts: OCEMSAlert[];
+  total: number;
+  filters: {
+    district: string | null;
+    cpcb_category: string | null;
+    parameter: string | null;
+    severity: string | null;
+    hours: number;
+  };
+  filter_options: {
+    districts: string[];
+    cpcb_categories: string[];
+    parameters: string[];
+    severities: string[];
+  };
+}
+
+export type UserRole =
+  | "super_admin"
+  | "regional_officer"
+  | "monitoring_team"
+  | "industry_user"
+  | "citizen";
+
+export interface AuthenticatedUser {
+  user_id: string;
+  username: string;
+  full_name: string;
+  role: UserRole;
+  email?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  state?: string | null;
+  is_active: boolean;
+  auth_mode: string;
+  assigned_region?: string | null;
+  assigned_state?: string | null;
+  assigned_district?: string | null;
+  industry_scope?: string | null;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  user: AuthenticatedUser;
+  role_home: string;
+}
+
 // ── Gamification ───────────────────────────────────────────
 export interface GamificationUser {
   user_id: string;

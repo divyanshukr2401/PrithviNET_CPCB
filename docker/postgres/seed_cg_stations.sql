@@ -92,12 +92,12 @@ INSERT INTO factories (factory_id, factory_name, industry_type, industry_risk, s
 -- --------------------------------------------------------------------------
 -- SEED GAMIFICATION DATA (sample users, challenges, badges)
 -- --------------------------------------------------------------------------
-INSERT INTO users (user_id, username, email, city, state, eco_points, level) VALUES
-('USR-001', 'eco_warrior_raipur', 'demo1@prithvinet.cg.gov.in', 'Raipur', 'Chhattisgarh', 1250, 5),
-('USR-002', 'green_korba', 'demo2@prithvinet.cg.gov.in', 'Korba', 'Chhattisgarh', 890, 4),
-('USR-003', 'clean_bhilai', 'demo3@prithvinet.cg.gov.in', 'Bhilai', 'Chhattisgarh', 2100, 7),
-('USR-004', 'bilaspur_guardian', 'demo4@prithvinet.cg.gov.in', 'Bilaspur', 'Chhattisgarh', 450, 2),
-('USR-005', 'durg_defender', 'demo5@prithvinet.cg.gov.in', 'Durg', 'Chhattisgarh', 680, 3);
+INSERT INTO users (user_id, username, email, full_name, role, auth_mode, city, state, eco_points, level) VALUES
+('USR-001', 'eco_warrior_raipur', 'demo1@prithvinet.cg.gov.in', 'Eco Warrior Raipur', 'citizen', 'citizen_quick_access', 'Raipur', 'Chhattisgarh', 1250, 5),
+('USR-002', 'green_korba', 'demo2@prithvinet.cg.gov.in', 'Green Korba', 'citizen', 'citizen_quick_access', 'Korba', 'Chhattisgarh', 890, 4),
+('USR-003', 'clean_bhilai', 'demo3@prithvinet.cg.gov.in', 'Clean Bhilai', 'citizen', 'citizen_quick_access', 'Bhilai', 'Chhattisgarh', 2100, 7),
+('USR-004', 'bilaspur_guardian', 'demo4@prithvinet.cg.gov.in', 'Bilaspur Guardian', 'citizen', 'citizen_quick_access', 'Bilaspur', 'Chhattisgarh', 450, 2),
+('USR-005', 'durg_defender', 'demo5@prithvinet.cg.gov.in', 'Durg Defender', 'citizen', 'citizen_quick_access', 'Durg', 'Chhattisgarh', 680, 3);
 
 INSERT INTO challenges (challenge_id, name, description, challenge_type, target_action, target_count, reward_points, start_date, end_date) VALUES
 ('CH-001', 'Air Aware Week', 'Report 5 air quality observations in your area this week', 'individual', 'air_report', 5, 100, NOW() - INTERVAL '7 days', NOW() + INTERVAL '7 days'),

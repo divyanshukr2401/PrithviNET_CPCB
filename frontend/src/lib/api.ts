@@ -2,6 +2,32 @@
 // Maps backend responses to frontend types
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
+const AUTH_TOKEN_KEY = "prithvinet_auth_token";
+
+function setCookie(name: string, value: string | null, maxAgeSeconds: number): void {
+  if (typeof document === "undefined") return;
+  if (value) {
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; samesite=lax`;
+  } else {
+    document.cookie = `${name}=; path=/; max-age=0; samesite=lax`;
+  }
+}
+
+export function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function storeAuthToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (token) {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    setCookie("prithvinet_auth_token", token, 60 * 60 * 12);
+  } else {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    setCookie("prithvinet_auth_token", null, 0);
+  }
+}
 
 async function fetchAPI<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs, ...fetchOptions } = options || {};
@@ -10,12 +36,14 @@ async function fetchAPI<T>(path: string, options?: RequestInit & { timeoutMs?: n
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
+  const authToken = getStoredAuthToken();
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...fetchOptions,
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...fetchOptions?.headers,
       },
     });
@@ -41,8 +69,14 @@ import type {
   WhatIfResponse,
   CausalDAGResponse,
   AutoHealerDiagnosis,
+  AuthResponse,
+  AuthenticatedUser,
   LeaderboardEntry,
   Factory,
+  OCEMSAlert,
+  OCEMSAlertsListResponse,
+  OCEMSAlertsSummary,
+  OCEMSNoticeDraft,
   WaterQualityHeatmapResponse,
   GroundwaterResponse,
   YearlyForecastResponse,
@@ -50,6 +84,42 @@ import type {
 
 export async function getHealth(): Promise<HealthResponse> {
   return fetchAPI("/health");
+}
+
+export async function login(params: {
+  username_or_email: string;
+  password: string;
+  role: string;
+}): Promise<AuthResponse> {
+  return fetchAPI("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function continueAsCitizen(params: {
+  full_name: string;
+  city: string;
+  state: string;
+  email?: string;
+  phone?: string;
+}): Promise<AuthResponse> {
+  return fetchAPI("/api/v1/auth/citizen/continue", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function getCurrentUser(): Promise<AuthenticatedUser> {
+  return fetchAPI("/api/v1/auth/me");
+}
+
+export async function refreshSession(): Promise<AuthResponse> {
+  return fetchAPI("/api/v1/auth/refresh", { method: "POST" });
+}
+
+export async function logout(): Promise<{ status: string }> {
+  return fetchAPI("/api/v1/auth/logout", { method: "POST" });
 }
 
 // ── Air Quality ────────────────────────────────────────────
@@ -231,6 +301,52 @@ export async function getExceedances(params?: {
   return fetchAPI(`/api/v1/compliance/exceedances${qs ? `?${qs}` : ""}`);
 }
 
+export async function getOCEMSAlertsSummary(params?: {
+  hours?: number;
+}): Promise<OCEMSAlertsSummary> {
+  const sp = new URLSearchParams();
+  if (params?.hours) sp.set("hours", String(params.hours));
+  const qs = sp.toString();
+  return fetchAPI(`/api/v1/compliance/alerts/summary${qs ? `?${qs}` : ""}`);
+}
+
+export async function getOCEMSAlerts(params?: {
+  district?: string;
+  cpcb_category?: string;
+  parameter?: string;
+  severity?: string;
+  hours?: number;
+}): Promise<OCEMSAlertsListResponse> {
+  const sp = new URLSearchParams();
+  if (params?.district) sp.set("district", params.district);
+  if (params?.cpcb_category) sp.set("cpcb_category", params.cpcb_category);
+  if (params?.parameter) sp.set("parameter", params.parameter);
+  if (params?.severity) sp.set("severity", params.severity);
+  if (params?.hours) sp.set("hours", String(params.hours));
+  const qs = sp.toString();
+  return fetchAPI(`/api/v1/compliance/alerts${qs ? `?${qs}` : ""}`, {
+    timeoutMs: 90_000,
+  });
+}
+
+export async function getOCEMSAlertDetail(alertId: string): Promise<OCEMSAlert> {
+  return fetchAPI(`/api/v1/compliance/alerts/${encodeURIComponent(alertId)}`, {
+    timeoutMs: 90_000,
+  });
+}
+
+export async function getOCEMSNoticeDraft(
+  alertId: string
+): Promise<OCEMSNoticeDraft> {
+  return fetchAPI(
+    `/api/v1/compliance/alerts/${encodeURIComponent(alertId)}/notice-draft`,
+    {
+      method: "POST",
+      timeoutMs: 90_000,
+    }
+  );
+}
+
 // ── Gamification ───────────────────────────────────────────
 // Backend returns array directly, not { leaderboard: [...] }
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
@@ -244,7 +360,6 @@ export async function getGamificationUser(
 }
 
 export async function submitReport(report: {
-  user_id: string;
   report_type: string;
   description: string;
   latitude: number;
