@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     TIMESFM_ENABLED: bool = True
     NIXTLA_API_KEY: Optional[str] = None
 
+    # Gemini AI (Copilot)
+    GEMINI_API_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -3,18 +3,34 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
 
-async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+async function fetchAPI<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const { timeoutMs, ...fetchOptions } = options || {};
+  const timeout = timeoutMs ?? 60_000; // default 60s timeout
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...fetchOptions,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...fetchOptions?.headers,
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`API error: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Request timed out after ${Math.round(timeout / 1000)}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 // ── Health ─────────────────────────────────────────────────
@@ -250,7 +266,9 @@ export async function getWaterQualityHeatmap(params?: {
   if (params?.limit) sp.set("limit", String(params.limit));
   if (params?.state) sp.set("state", params.state);
   const qs = sp.toString();
-  return fetchAPI(`/api/v1/water/quality-heatmap${qs ? `?${qs}` : ""}`);
+  return fetchAPI(`/api/v1/water/quality-heatmap${qs ? `?${qs}` : ""}`, {
+    timeoutMs: 90_000, // water quality fetch can take up to 90s on cold cache
+  });
 }
 
 // ── Groundwater Level ─────────────────────────────────────
@@ -291,4 +309,122 @@ export async function getNoiseStandards(): Promise<{
   reference: string;
 }> {
   return fetchAPI("/api/v1/noise/standards");
+}
+
+// ── AI Copilot ───────────────────────────────────────────────
+export interface CopilotMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CopilotResponse {
+  response: string;
+  mode: string;
+  context_summary?: string;
+}
+
+export async function sendCopilotMessage(params: {
+  message: string;
+  active_layer?: string;
+  history?: CopilotMessage[];
+  mode?: string;
+}): Promise<CopilotResponse> {
+  return fetchAPI("/api/v1/copilot/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message: params.message,
+      active_layer: params.active_layer || null,
+      history: params.history?.map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content,
+      })),
+      mode: params.mode || "analyst",
+    }),
+  });
+}
+
+export async function getCopilotSuggestions(
+  activeLayer?: string
+): Promise<{ suggestions: string[] }> {
+  const qs = activeLayer ? `?active_layer=${activeLayer}` : "";
+  return fetchAPI(`/api/v1/copilot/suggestions${qs}`);
+}
+
+// ── Report Generation ────────────────────────────────────────
+export interface ReportParams {
+  include_aqi?: boolean;
+  include_water?: boolean;
+  include_noise?: boolean;
+}
+
+function _buildReportQS(params?: ReportParams): string {
+  if (!params) return "";
+  const sp = new URLSearchParams();
+  if (params.include_aqi === false) sp.set("include_aqi", "false");
+  if (params.include_water === false) sp.set("include_water", "false");
+  if (params.include_noise === false) sp.set("include_noise", "false");
+  const qs = sp.toString();
+  return qs ? `&${qs}` : "";
+}
+
+export async function downloadCityReport(
+  city: string,
+  params?: ReportParams
+): Promise<Blob> {
+  const qs = _buildReportQS(params);
+  const res = await fetch(
+    `${API_BASE}/api/v1/report/city?city=${encodeURIComponent(city)}${qs}`
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`Report generation failed (${res.status}): ${text}`);
+  }
+  return res.blob();
+}
+
+export async function downloadStateReport(
+  state: string,
+  params?: ReportParams
+): Promise<Blob> {
+  const qs = _buildReportQS(params);
+  const res = await fetch(
+    `${API_BASE}/api/v1/report/state?state=${encodeURIComponent(state)}${qs}`
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`Report generation failed (${res.status}): ${text}`);
+  }
+  return res.blob();
+}
+
+export async function downloadNationalReport(
+  params?: ReportParams
+): Promise<Blob> {
+  const sp = new URLSearchParams();
+  if (params?.include_aqi === false) sp.set("include_aqi", "false");
+  if (params?.include_water === false) sp.set("include_water", "false");
+  if (params?.include_noise === false) sp.set("include_noise", "false");
+  const qs = sp.toString();
+  const res = await fetch(
+    `${API_BASE}/api/v1/report/national${qs ? `?${qs}` : ""}`
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`Report generation failed (${res.status}): ${text}`);
+  }
+  return res.blob();
+}
+
+export async function getAvailableCities(): Promise<{
+  cities: string[];
+  count: number;
+}> {
+  return fetchAPI("/api/v1/report/available-cities");
+}
+
+export async function getAvailableStates(): Promise<{
+  states: string[];
+  count: number;
+}> {
+  return fetchAPI("/api/v1/report/available-states");
 }

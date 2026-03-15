@@ -1,8 +1,10 @@
 """Water Quality Monitoring API Endpoints — wired to ClickHouse + PostGIS."""
 
+import asyncio
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from datetime import datetime
+from loguru import logger
 
 from app.services.ingestion.clickhouse_writer import ch_writer
 from app.services.ingestion.postgres_writer import pg_writer
@@ -195,12 +197,19 @@ async def get_water_quality_heatmap(
     except Exception:
         redis = None
 
-    points = await fetch_water_quality_cached(
-        redis_client=redis,
-        limit=limit,
-        state=state,
-        cache_ttl=7200,  # 2 hours (static dataset)
-    )
+    try:
+        points = await asyncio.wait_for(
+            fetch_water_quality_cached(
+                redis_client=redis,
+                limit=limit,
+                state=state,
+                cache_ttl=7200,  # 2 hours (static dataset)
+            ),
+            timeout=80.0,  # Overall 80s cap — return whatever we have
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Water quality heatmap fetch timed out after 80s")
+        points = []
 
     return {
         "source": "data.gov.in CPCB Surface Water Quality 2018",

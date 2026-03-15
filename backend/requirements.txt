@@ -47,6 +47,9 @@ faker>=22.0.0
 # Redis Cache
 redis[hiredis]>=5.0.0
 
+# PDF Report Generation
+fpdf2>=2.8.0
+
 # Utilities
 python-dotenv>=1.0.0
 loguru>=0.7.0

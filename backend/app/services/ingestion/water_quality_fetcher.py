@@ -241,6 +241,9 @@ async def fetch_water_quality_heatmap(
     If state is None, fetches ALL states using per-state iteration to guarantee
     uniform geographic coverage across India.
 
+    Has an overall timeout of 80s — returns partial results if the external API
+    is slow rather than hanging indefinitely.
+
     Returns list of dicts:
         {lat, lng, intensity, station_name, state, district, wqi, parameters}
     """
@@ -265,7 +268,16 @@ async def fetch_water_quality_heatmap(
                     _fetch_state_points(client, s, per_state_limit, seen_coords)
                     for s in batch_states
                 ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                try:
+                    # Per-batch timeout of 25s — if one batch is slow, skip it
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=25.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"Batch timeout for states {batch_states}, skipping")
+                    continue
 
                 for s, result in zip(batch_states, results):
                     if isinstance(result, Exception):

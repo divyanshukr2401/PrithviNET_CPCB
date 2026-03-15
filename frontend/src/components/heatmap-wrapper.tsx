@@ -132,40 +132,8 @@ function buildTooltip(p: HeatmapPoint): string {
 /**
  * Build an HTML popup string for a station point (click — persistent).
  */
-function buildPopup(p: HeatmapPoint): string {
-  const wqiRaw = p.intensity.toFixed(3);
-  const label = getWQICategory(p.intensity);
-  const badgeColor = getWQIBadgeColor(p.intensity);
-
-  let html = `<div style="font-family:system-ui,sans-serif;font-size:13px;min-width:220px;max-width:300px">`;
-  html += `<div style="font-weight:700;font-size:14px;margin-bottom:4px">${p.station_name || "Unknown Station"}</div>`;
-  if (p.state) {
-    html += `<div style="color:#555;margin-bottom:2px">${p.state}</div>`;
-  }
-  if (p.district) {
-    html += `<div style="color:#777;font-size:12px;margin-bottom:6px">${p.district}</div>`;
-  }
-  html += `<div style="display:inline-block;background:${badgeColor};color:#fff;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;margin-bottom:8px">`;
-  html += `WQI: ${wqiRaw} — ${label}`;
-  html += `</div>`;
-
-  // Show ALL parameters
-  if (p.parameters && Object.keys(p.parameters).length > 0) {
-    html += `<div style="border-top:1px solid #e5e7eb;padding-top:6px;margin-top:4px">`;
-    html += `<div style="font-weight:600;font-size:11px;color:#555;margin-bottom:4px">Water Quality Parameters</div>`;
-    const entries = Object.entries(p.parameters);
-    for (const [name, val] of entries) {
-      html += `<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:12px">`;
-      html += `<span style="color:#555">${name}</span>`;
-      html += `<span style="font-weight:500">${val}</span>`;
-      html += `</div>`;
-    }
-    html += `</div>`;
-  }
-
-  html += `</div>`;
-  return html;
-}
+// REMOVED: Popups are no longer used. Station detail is shown in a React
+// side-panel via the onPointClick callback instead.
 
 // ── Default gradient (blue → red) ─────────────────────────────
 const DEFAULT_GRADIENT: Record<number, string> = {
@@ -180,6 +148,7 @@ interface CircleMarkerLayerProps {
   points: HeatmapPoint[];
   circleRadius?: number;
   gradient?: Record<number, string>;
+  onPointClick?: (point: HeatmapPoint) => void;
 }
 
 /**
@@ -196,6 +165,38 @@ function pointsFingerprint(pts: HeatmapPoint[]): string {
 }
 
 /**
+ * Calls map.invalidateSize() when the map container is resized or first
+ * becomes visible (e.g. switching to the Water tab).  Without this, Leaflet
+ * can calculate wrong pixel positions for markers because it measured the
+ * container when it was hidden / zero-size.
+ */
+function MapResizeHandler() {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+
+    const container = map.getContainer();
+
+    // Fire once on mount after a short delay — catches initial tab render
+    const timer = setTimeout(() => map.invalidateSize(), 200);
+
+    // Watch for ongoing resize / visibility changes
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    observer.observe(container);
+
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
+/**
  * Inner component: uses useMap() to create L.circleMarker for each point.
  * Markers are fixed pixel-size — no distortion on zoom.
  *
@@ -208,6 +209,7 @@ function CircleMarkerLayer({
   points,
   circleRadius = 6,
   gradient = DEFAULT_GRADIENT,
+  onPointClick,
 }: CircleMarkerLayerProps) {
   const map = useMap();
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -263,11 +265,10 @@ function CircleMarkerLayer({
         sticky: false,
       });
 
-      // Popup on click (persistent, shows full details)
-      marker.bindPopup(buildPopup(p), {
-        maxWidth: 320,
-        className: "wqi-popup",
-      });
+      // Click → notify parent React component (side-panel detail view)
+      if (onPointClick) {
+        marker.on("click", () => onPointClick(p));
+      }
 
       // Hover highlight — reset ALL style props (including fillColor) to
       // prevent Leaflet state corruption during rapid re-renders
@@ -305,7 +306,7 @@ function CircleMarkerLayer({
         layerGroupRef.current = null;
       }
     };
-  }, [map, points, circleRadius, gradient, currentFingerprint]);
+  }, [map, points, circleRadius, gradient, currentFingerprint, onPointClick]);
 
   return null;
 }
@@ -317,6 +318,7 @@ interface HeatmapWrapperProps {
   className?: string;
   radius?: number;
   gradient?: Record<number, string>;
+  onPointClick?: (point: HeatmapPoint) => void;
 }
 
 export default function HeatmapWrapper({
@@ -326,6 +328,7 @@ export default function HeatmapWrapper({
   className = "",
   radius = 6,
   gradient,
+  onPointClick,
 }: HeatmapWrapperProps) {
   return (
     <MapContainer
@@ -340,10 +343,12 @@ export default function HeatmapWrapper({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <MapResizeHandler />
       <CircleMarkerLayer
         points={points}
         circleRadius={radius}
         gradient={gradient}
+        onPointClick={onPointClick}
       />
     </MapContainer>
   );

@@ -19,6 +19,8 @@ from app.api import (
     compliance,
     gamification,
     ingest,
+    copilot,
+    report,
 )
 from app.core.redis import get_redis, close_redis
 from app.services.ingestion.clickhouse_writer import ch_writer
@@ -115,6 +117,8 @@ app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["Compli
 app.include_router(
     gamification.router, prefix="/api/v1/gamification", tags=["Gamification"]
 )
+app.include_router(copilot.router, prefix="/api/v1/copilot", tags=["AI Copilot"])
+app.include_router(report.router, prefix="/api/v1/report", tags=["Report Generation"])
 
 
 @app.get("/")

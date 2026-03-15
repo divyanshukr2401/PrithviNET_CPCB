@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { getLiveAir, getStations, getWaterQualityHeatmap, getGroundwaterLevel, getNoiseLive } from "@/lib/api";
+import { getLiveAir, getStations, getWaterQualityHeatmap, getGroundwaterLevel, getNoiseLive, downloadCityReport, downloadNationalReport } from "@/lib/api";
 import type { AirReading, WaterQualityHeatmapPoint, GroundwaterCity, NoiseStation, NoiseLiveResponse, DistrictNoiseData } from "@/lib/types";
 import { getAQICategory, getNoiseComplianceColor, getNoiseComplianceLabel, ZONE_DISPLAY, RISK_LEVEL_COLORS, COMPLIANCE_COLORS } from "@/lib/types";
 import { AQIMap } from "@/components/aqi-map";
@@ -10,6 +10,10 @@ import { NoiseStationDetail } from "@/components/noise-station-detail";
 import { DistrictNoiseMap } from "@/components/district-noise-map";
 import { DistrictNoiseDetail } from "@/components/district-noise-detail";
 import { WaterQualityMap } from "@/components/water-quality-map";
+import { WaterStationDetail } from "@/components/water-station-detail";
+import { WaterStationList } from "@/components/water-station-list";
+import { CopilotPanel } from "@/components/copilot-panel";
+import { CopilotButton } from "@/components/copilot-button";
 import {
   GroundwaterExploitationMap,
 } from "@/components/groundwater-exploitation-map";
@@ -25,39 +29,52 @@ import {
   RefreshCw,
   Radio,
   Search,
-  ChevronDown,
   Droplets,
   Wind,
   Volume2,
+  Thermometer,
+  FileDown,
+  Loader2,
 } from "lucide-react";
 
-type ActiveLayer = "aqi" | "water" | "noise";
+type ActiveLayer = "aqi" | "water" | "noise" | "temperature";
 
 const LAYER_CONFIG: Record<
   ActiveLayer,
-  { label: string; subtitle: string; icon: typeof Wind }
+  { label: string; subtitle: string; icon: typeof Wind; color: string }
 > = {
   aqi: {
     label: "National Air Quality Index",
     subtitle: "Real-time CPCB station monitoring across India",
     icon: Wind,
+    color: "#009966",
   },
   water: {
     label: "Surface Water Quality",
     subtitle: "CPCB water quality monitoring stations across India",
     icon: Droplets,
+    color: "#0571b0",
   },
   noise: {
     label: "Environmental Noise Monitoring",
     subtitle: "CNOSSOS-EU compliant acoustic analysis",
     icon: Volume2,
+    color: "#8b5cf6",
+  },
+  temperature: {
+    label: "Temperature Monitoring",
+    subtitle: "Surface temperature data across India",
+    icon: Thermometer,
+    color: "#ef4444",
   },
 };
 
 export default function DashboardPage() {
   // Layer selector state
   const [activeLayer, setActiveLayer] = useState<ActiveLayer>("aqi");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // Copilot state
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   // AQI state
   const [readings, setReadings] = useState<AirReading[]>([]);
@@ -83,6 +100,8 @@ export default function DashboardPage() {
   const [waterLoading, setWaterLoading] = useState(false);
   const [waterError, setWaterError] = useState<string | null>(null);
   const [waterFetched, setWaterFetched] = useState(false);
+  const [selectedWaterStation, setSelectedWaterStation] =
+    useState<WaterQualityHeatmapPoint | null>(null);
 
   // Groundwater level search state
   const [gwCities, setGwCities] = useState<GroundwaterCity[]>([]);
@@ -107,6 +126,9 @@ export default function DashboardPage() {
   const [noiseSubView, setNoiseSubView] = useState<NoiseSubView>("district");
   const districtNoiseData: DistrictNoiseData[] = districtNoiseRaw as DistrictNoiseData[];
   const [selectedDistrictNoise, setSelectedDistrictNoise] = useState<string | null>(null);
+
+  // Report download state
+  const [reportLoading, setReportLoading] = useState(false);
 
   // Fetch station metadata (names, states) once
   useEffect(() => {
@@ -240,6 +262,18 @@ export default function DashboardPage() {
     setSelectedStation(stationId === selectedStation ? null : stationId);
   };
 
+  const handleWaterStationClick = (point: WaterQualityHeatmapPoint | { lat: number; lng: number }) => {
+    // If called from HeatmapWrapper (HeatmapPoint), find the full WaterQualityHeatmapPoint
+    const found = waterPoints.find(
+      (p) => p.lat === point.lat && p.lng === point.lng
+    );
+    if (!found) return;
+    // Toggle: clicking the same station again deselects it
+    setSelectedWaterStation((prev) =>
+      prev && prev.lat === found.lat && prev.lng === found.lng ? null : found
+    );
+  };
+
   // Loading state (initial AQI load)
   if (loading && activeLayer === "aqi") {
     return (
@@ -274,153 +308,125 @@ export default function DashboardPage() {
 
   const aqiReadings = filteredReadings.filter((r) => r.parameter === "AQI");
   const totalAqiReadings = readings.filter((r) => r.parameter === "AQI");
-  const currentConfig = LAYER_CONFIG[activeLayer];
-  const LayerIcon = currentConfig.icon;
 
   return (
+    <>
     <div className="space-y-5">
-      {/* Header with Layer Dropdown */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          {/* 3-way dropdown selector */}
-          <div className="relative">
-            <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-colors bg-card hover:bg-muted/50"
-              style={{
-                borderColor:
-                  activeLayer === "aqi"
-                    ? "#009966"
-                    : activeLayer === "water"
-                    ? "#0571b0"
-                    : "#8b5cf6",
-              }}
-            >
-              <LayerIcon
-                className="w-5 h-5"
-                style={{
-                  color:
-                    activeLayer === "aqi"
-                      ? "#009966"
-                      : activeLayer === "water"
-                      ? "#0571b0"
-                      : "#8b5cf6",
-                }}
-              />
-              <div className="text-left">
-                <div className="text-lg font-bold leading-tight">
-                  {currentConfig.label}
-                </div>
-                <div className="text-xs text-muted-foreground leading-tight">
-                  {currentConfig.subtitle}
-                </div>
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 ml-2 text-muted-foreground transition-transform ${
-                  dropdownOpen ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-
-            {/* Dropdown menu */}
-            {dropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-full min-w-[340px] bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-                {(Object.entries(LAYER_CONFIG) as [ActiveLayer, typeof currentConfig][]).map(
-                  ([key, config]) => {
-                    const Icon = config.icon;
-                    const isActive = key === activeLayer;
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => {
-                          setActiveLayer(key);
-                          setDropdownOpen(false);
-                        }}
-                        className={`flex items-center gap-3 w-full px-4 py-3 text-left transition-colors ${
-                          isActive
-                            ? "bg-primary/10"
-                            : "hover:bg-muted/50"
-                        }`}
-                      >
-                        <Icon
-                          className="w-5 h-5 flex-shrink-0"
-                          style={{
-                            color:
-                              key === "aqi"
-                                ? "#009966"
-                                : key === "water"
-                                ? "#0571b0"
-                                : "#8b5cf6",
-                          }}
-                        />
-                        <div>
-                          <div className="text-sm font-medium">
-                            {config.label}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {config.subtitle}
-                          </div>
-                        </div>
-                        {isActive && (
-                          <div
-                            className="ml-auto w-2 h-2 rounded-full"
-                            style={{
-                              backgroundColor:
-                                key === "aqi"
-                                  ? "#009966"
-                                  : key === "water"
-                                  ? "#0571b0"
-                                  : "#8b5cf6",
-                            }}
-                          />
-                        )}
-                      </button>
-                    );
+      {/* Header with Horizontal Tabs */}
+      <div className="flex items-center gap-0 bg-card border border-border rounded-lg overflow-hidden">
+        {/* Tab buttons — fill available space */}
+        <div className="flex flex-1 min-w-0">
+          {(Object.entries(LAYER_CONFIG) as [ActiveLayer, (typeof LAYER_CONFIG)[ActiveLayer]][]).map(
+            ([key, config]) => {
+              const Icon = config.icon;
+              const isActive = key === activeLayer;
+              return (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setActiveLayer(key);
+                    // Clear selections from other tabs
+                    setSelectedStation(null);
+                    setSelectedWaterStation(null);
+                  }}
+                  className={`flex items-center justify-center gap-2 flex-1 px-3 py-3 text-sm font-medium transition-colors relative ${
+                    isActive
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                  }`}
+                  style={
+                    isActive
+                      ? { backgroundColor: `${config.color}10` }
+                      : undefined
                   }
-                )}
-              </div>
-            )}
-          </div>
+                >
+                  <Icon
+                    className="w-4 h-4 flex-shrink-0"
+                    style={{ color: isActive ? config.color : undefined }}
+                  />
+                  <span className="truncate hidden sm:inline">{config.label}</span>
+                  {/* Active indicator — colored bottom border */}
+                  {isActive && (
+                    <span
+                      className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t"
+                      style={{ backgroundColor: config.color }}
+                    />
+                  )}
+                </button>
+              );
+            }
+          )}
         </div>
 
-        {/* Right side controls — only for AQI */}
-        {activeLayer === "aqi" && (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Radio className="w-3 h-3 text-green-700 animate-pulse-dot" />
-              <span>
-                Live
-                {lastUpdate ? ` | ${lastUpdate.toLocaleTimeString()}` : ""}
-              </span>
-            </div>
-            <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
-                autoRefresh
-                  ? "border-green-600/30 text-green-700 bg-green-500/10"
-                  : "border-border text-muted-foreground"
-              }`}
-            >
-              Auto-refresh {autoRefresh ? "ON" : "OFF"}
-            </button>
-            <button
-              onClick={fetchData}
-              className="p-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-              title="Refresh now"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {/* Right side controls — Live indicator & auto-refresh + Report Download */}
+        <div className="flex items-center gap-3 px-4 border-l border-border flex-shrink-0">
+          {activeLayer === "aqi" && (
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Radio className="w-3 h-3 text-green-700 animate-pulse-dot" />
+                <span>
+                  Live
+                  {lastUpdate ? ` | ${lastUpdate.toLocaleTimeString()}` : ""}
+                </span>
+              </div>
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                  autoRefresh
+                    ? "border-green-600/30 text-green-700 bg-green-500/10"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                Auto-refresh {autoRefresh ? "ON" : "OFF"}
+              </button>
+              <button
+                onClick={fetchData}
+                className="p-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                title="Refresh now"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </>
+          )}
+          {/* Download Report — visible for all tabs */}
+          <button
+            onClick={async () => {
+              if (reportLoading) return;
+              setReportLoading(true);
+              try {
+                const blob = await downloadNationalReport({
+                  include_aqi: true,
+                  include_water: true,
+                  include_noise: true,
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `PrithviNET_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (err) {
+                console.error("Report download failed:", err);
+                alert("Report generation failed. Please try again.");
+              } finally {
+                setReportLoading(false);
+              }
+            }}
+            disabled={reportLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-green-600/30 text-green-700 bg-green-500/10 hover:bg-green-500/20 transition-colors disabled:opacity-50 disabled:cursor-wait"
+            title="Download PDF Report"
+          >
+            {reportLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden sm:inline">{reportLoading ? "Generating..." : "Report"}</span>
+          </button>
+        </div>
       </div>
-
-      {/* Close dropdown on outside click */}
-      {dropdownOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setDropdownOpen(false)}
-        />
-      )}
 
       {/* ═══════════════════════════════════════════════════════
           AQI VIEW
@@ -541,7 +547,10 @@ export default function DashboardPage() {
                   Loading water quality data from data.gov.in...
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Fetching CPCB monitoring stations
+                  Fetching CPCB monitoring stations across 33 states
+                </p>
+                <p className="text-xs text-muted-foreground mt-2 italic">
+                  First load may take up to a minute — subsequent loads are cached
                 </p>
               </div>
             </div>
@@ -824,21 +833,50 @@ export default function DashboardPage() {
                 );
               })()}
 
-              {/* Water Quality Station Map */}
-              <div className="bg-card rounded-lg border border-border overflow-hidden">
-                <div className="p-3 border-b border-border flex items-center justify-between">
-                  <h3 className="text-sm font-medium">
-                    Water Quality Station Map
-                  </h3>
-                  <span className="text-xs text-muted-foreground">
-                    {waterPoints.length} monitoring stations | Source:
-                    data.gov.in CPCB
-                  </span>
+              {/* Water Quality Station Map + Detail Panel */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                <div className="lg:col-span-8 bg-card rounded-lg border border-border overflow-hidden">
+                  <div className="p-3 border-b border-border flex items-center justify-between">
+                    <h3 className="text-sm font-medium">
+                      Water Quality Station Map
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      {waterPoints.length} monitoring stations | Source:
+                      data.gov.in CPCB
+                    </span>
+                  </div>
+                  <WaterQualityMap
+                    points={waterPoints}
+                    className="h-[550px]"
+                    onPointClick={handleWaterStationClick}
+                  />
                 </div>
-                <WaterQualityMap
-                  points={waterPoints}
-                  className="h-[550px]"
-                />
+
+                <div className="lg:col-span-4 bg-card rounded-lg border border-border overflow-hidden flex flex-col">
+                  {selectedWaterStation ? (
+                    <WaterStationDetail
+                      point={selectedWaterStation}
+                      onClose={() => setSelectedWaterStation(null)}
+                    />
+                  ) : (
+                    <>
+                      <div className="p-3 border-b border-border flex items-center justify-between">
+                        <h3 className="text-sm font-medium">
+                          Stations (by WQI)
+                        </h3>
+                        <span className="text-xs text-muted-foreground">
+                          Click a station for details
+                        </span>
+                      </div>
+                      <WaterStationList
+                        points={waterPoints}
+                        onStationClick={handleWaterStationClick}
+                        selectedStation={selectedWaterStation}
+                        maxHeight="510px"
+                      />
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Water Quality Legend */}
@@ -1495,6 +1533,46 @@ export default function DashboardPage() {
           )}
         </>
       )}
+
+      {/* ═══════════════════════════════════════════════════════
+          TEMPERATURE VIEW
+          ═══════════════════════════════════════════════════════ */}
+      {activeLayer === "temperature" && (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center bg-card p-10 rounded-xl border border-border max-w-md">
+            <div
+              className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: "#ef444415" }}
+            >
+              <Thermometer className="w-8 h-8" style={{ color: "#ef4444" }} />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Temperature Monitoring</h2>
+            <p className="text-muted-foreground text-sm mb-1">
+              Surface temperature data integration is under development.
+            </p>
+            <p className="text-muted-foreground text-xs">
+              This module will provide real-time temperature readings from IMD stations across India.
+            </p>
+            <span className="inline-block mt-4 px-3 py-1 rounded-full text-xs font-medium border"
+              style={{ borderColor: "#ef444440", color: "#ef4444", backgroundColor: "#ef444410" }}
+            >
+              Coming Soon
+            </span>
+          </div>
+        </div>
+      )}
     </div>
+
+    {/* AI Copilot */}
+    <CopilotButton
+      onClick={() => setCopilotOpen(true)}
+      isOpen={copilotOpen}
+    />
+    <CopilotPanel
+      isOpen={copilotOpen}
+      onClose={() => setCopilotOpen(false)}
+      activeLayer={activeLayer}
+    />
+    </>
   );
 }

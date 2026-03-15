@@ -522,38 +522,36 @@ async def get_yearly_profile(station_id: str) -> dict:
             pt["lower"] = round(max(10.0, new_pred - half_width), 1)
             pt["upper"] = round(new_pred + half_width, 1)
 
-    # ── 5. Build monthly summary (historical + forecast) ─────────────
+    # ── 5. Build monthly summary (historical + forecast, deduplicated) ──
     monthly_summary = []
 
-    # Historical months
-    hist_monthly = defaultdict(list)
+    # Collect daily AQI values per month from both historical and forecast
+    hist_monthly: dict[str, list[float]] = defaultdict(list)
     for pt in historical:
         month_key = pt["date"][:7]  # "2025-04"
         hist_monthly[month_key].append(pt["avg_aqi"])
-    for month_key in sorted(hist_monthly.keys()):
-        avg = round(np.mean(hist_monthly[month_key]), 1)
-        monthly_summary.append(
-            {
-                "month": month_key,
-                "avg_aqi": avg,
-                "category": _get_aqi_category(avg),
-                "is_forecast": False,
-            }
-        )
 
-    # Forecast months
-    fc_monthly = defaultdict(list)
+    fc_monthly: dict[str, list[float]] = defaultdict(list)
     for pt in forecast_points:
         month_key = pt["date"][:7]
         fc_monthly[month_key].append(pt["predicted"])
-    for month_key in sorted(fc_monthly.keys()):
-        avg = round(np.mean(fc_monthly[month_key]), 1)
+
+    # Merge: union of all month keys, deduplicated.  If a month has both
+    # historical and forecast data (the transition month), combine them and
+    # mark as is_forecast=True since it contains forecast values.
+    all_months = sorted(set(hist_monthly.keys()) | set(fc_monthly.keys()))
+    for month_key in all_months:
+        combined_values = hist_monthly.get(month_key, []) + fc_monthly.get(
+            month_key, []
+        )
+        avg = round(float(np.mean(combined_values)), 1)
+        has_forecast = month_key in fc_monthly
         monthly_summary.append(
             {
                 "month": month_key,
                 "avg_aqi": avg,
                 "category": _get_aqi_category(avg),
-                "is_forecast": True,
+                "is_forecast": has_forecast,
             }
         )
 

@@ -86,18 +86,32 @@ class PostgresWriter:
             rows = await self._pool.fetch(f"{base} ORDER BY station_id")
         return [dict(r) for r in rows]
 
-    async def get_noise_stations(self, city: Optional[str] = None) -> list[dict]:
+    async def get_noise_stations(
+        self,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> list[dict]:
         self._ensure_pool()
+        conditions: list[str] = []
+        params: list = []
+        idx = 1
         base = """SELECT station_id, station_name, zone_type, city, state,
                          ST_Y(geom) AS latitude, ST_X(geom) AS longitude,
                          day_limit, night_limit, created_at
-                  FROM noise_stations"""
+                   FROM noise_stations"""
         if city:
-            rows = await self._pool.fetch(
-                f"{base} WHERE city = $1 ORDER BY station_id", city
-            )
-        else:
-            rows = await self._pool.fetch(f"{base} ORDER BY station_id")
+            conditions.append(f"city = ${idx}")
+            params.append(city)
+            idx += 1
+        if state:
+            conditions.append(f"state = ${idx}")
+            params.append(state)
+            idx += 1
+        where = " AND ".join(conditions) if conditions else "TRUE"
+        rows = await self._pool.fetch(
+            f"{base} WHERE {where} ORDER BY state, city, station_id",
+            *params,
+        )
         return [dict(r) for r in rows]
 
     async def get_factories(

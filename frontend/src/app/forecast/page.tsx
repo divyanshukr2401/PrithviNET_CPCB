@@ -577,14 +577,14 @@ function ForecastPageInner() {
                 Monthly AQI Summary
               </h3>
               <div className="flex gap-1 overflow-x-auto pb-1">
-                {data.monthly_summary.map((m) => {
+                {data.monthly_summary.map((m, i) => {
                   const bgColor = getAQIColor(m.avg_aqi);
                   // Determine text color for contrast
                   const cat = m.category;
                   const textWhite = cat === "Good" || cat === "Poor" || cat === "Very Poor" || cat === "Severe";
                   return (
                     <div
-                      key={m.month}
+                      key={`${m.month}-${i}`}
                       className="flex-shrink-0 rounded-md px-2.5 py-2 text-center min-w-[68px] relative"
                       style={{
                         backgroundColor: bgColor,

@@ -15,12 +15,14 @@ import {
   Leaf,
   ChevronLeft,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
   { href: "/stations", label: "Stations", icon: MapPin },
   { href: "/forecast", label: "Forecast", icon: Activity },
+  { href: "/reports", label: "Reports", icon: FileText },
   { href: "/causal", label: "What-If Simulator", icon: BrainCircuit },
   { href: "/compliance", label: "OCEMS Healer", icon: Shield },
   { href: "/gamification", label: "Eco Points", icon: Trophy },

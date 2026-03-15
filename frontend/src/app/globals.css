@@ -52,6 +52,28 @@ body {
 .leaflet-container {
   background: #e8e8e8;
   border-radius: 0.5rem;
+  /* Create stacking context so Leaflet controls (z-800) stay within the map
+     and don't bleed above fixed UI elements like the copilot panel. */
+  position: relative !important;
+  z-index: 1 !important;
+  isolation: isolate;
+}
+
+/* Prevent Tailwind v4 preflight from breaking Leaflet tile/marker positioning */
+.leaflet-container img {
+  max-width: none !important;
+  height: auto !important;
+}
+.leaflet-tile-pane img {
+  max-width: none !important;
+  height: auto !important;
+}
+.leaflet-container svg {
+  display: inline !important;
+}
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+  max-width: none !important;
 }
 
 .leaflet-popup-content-wrapper {

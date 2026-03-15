@@ -31,6 +31,7 @@ interface WaterQualityMapProps {
   center?: [number, number];
   zoom?: number;
   className?: string;
+  onPointClick?: (point: HeatmapPoint) => void;
 }
 
 export function WaterQualityMap({
@@ -38,6 +39,7 @@ export function WaterQualityMap({
   center = [22.5, 80.0],
   zoom = 5,
   className = "",
+  onPointClick,
 }: WaterQualityMapProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -63,6 +65,7 @@ export function WaterQualityMap({
         zoom={zoom}
         radius={7}
         gradient={WATER_QUALITY_GRADIENT}
+        onPointClick={onPointClick}
       />
     </div>
   );
